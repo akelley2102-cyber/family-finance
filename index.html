@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+  <meta name="theme-color" content="#080d1a"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Family Finance"/>
+  <meta name="description" content="Family budget, bills &amp; cash flow tracker"/>
+  <title>Family Finance</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <link rel="icon" type="image/png" href="icons/icon-192.png"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#080d1a;overflow-x:hidden}
+    body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+    #root{min-height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    button{-webkit-tap-highlight-color:transparent;user-select:none;font-family:inherit}
+    input,select,textarea{font-family:inherit}
+    input[type=number]::-webkit-inner-spin-button{opacity:1}
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#080d1a;color:#64748b;font-family:sans-serif;flex-direction:column;gap:10px">
+      <div style="font-size:36px">◎</div>
+      <div style="font-size:14px">Loading Family Finance...</div>
+    </div>
+  </div>
+
+  <!-- React from CDN -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <!-- Babel to transpile JSX in browser -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <!-- localStorage-based storage (works everywhere) -->
+  <script>
+    window.storage = {
+      get:    async (k)   => { try { const v=localStorage.getItem(k); return v?{key:k,value:v}:null; } catch(e){return null;} },
+      set:    async (k,v) => { try { localStorage.setItem(k,String(v)); return {key:k,value:v}; } catch(e){return null;} },
+      delete: async (k)   => { try { localStorage.removeItem(k); return {key:k,deleted:true}; } catch(e){return null;} },
+      list:   async (pfx) => { try { const ks=Object.keys(localStorage).filter(k=>!pfx||k.startsWith(pfx)); return {keys:ks}; } catch(e){return {keys:[]};} }
+    };
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{
+        navigator.serviceWorker.register('sw.js').catch(()=>{});
+      });
+    }
+  </script>
+
+  <!-- App -->
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+
+const DEFAULT_ACCOUNTS = [
+  { id:"wf",  name:"Wells Fargo",  balance:1900, color:"#f59e0b", note:"New primary bank" },
+  { id:"inc", name:"Income CK",    balance:794,  color:"#3b82f6", note:"Old bank — Progress payroll still here" },
+  { id:"spd", name:"Spending CK",  balance:28,   color:"#6366f1", note:"Old bank — nearly empty" },
+];
+
+const DEFAULT_BUDGETS = [
+  { id:"groc",  name:"Groceries",    budget:550,  icon:"🛒", color:"#3d9970", spent:898  },
+  { id:"dd",    name:"DoorDash",     budget:150,  icon:"🚗", color:"#e74c3c", spent:442  },
+  { id:"dine",  name:"Dining out",   budget:200,  icon:"🍽", color:"#e67e22", spent:503  },
+  { id:"tgt",   name:"Target",       budget:250,  icon:"🎯", color:"#c0392b", spent:887  },
+  { id:"amzn",  name:"Amazon",       budget:200,  icon:"📦", color:"#f39c12", spent:575  },
+  { id:"clth",  name:"Clothing",     budget:75,   icon:"👗", color:"#9b59b6", spent:284  },
+  { id:"gas",   name:"Gas/Fuel",     budget:182,  icon:"⛽", color:"#1abc9c", spent:233  },
+  { id:"med",   name:"Medical",      budget:132,  icon:"💊", color:"#3498db", spent:290  },
+  { id:"clean", name:"Cleaning",     budget:150,  icon:"🧹", color:"#64748b", spent:150  },
+  { id:"ent",   name:"Entertainment",budget:100,  icon:"🎲", color:"#8b5cf6", spent:240  },
+  { id:"home",  name:"Home/Hardware",budget:150,  icon:"🔨", color:"#78716c", spent:591  },
+];
+
+const DEFAULT_BILLS = [
+  { id:1,  name:"Ardent Preschool", cat:"Childcare", day:6,   amt:351,  auto:true,  paid:true,  acct:"inc", note:"Weekly" },
+  { id:2,  name:"AT&T",            cat:"Phone",      day:3,   amt:228,  auto:true,  paid:true,  acct:"inc" },
+  { id:3,  name:"YMCA",            cat:"Gym",        day:2,   amt:317,  auto:true,  paid:true,  acct:"inc" },
+  { id:4,  name:"Alabama Power",   cat:"Electric",   day:8,   amt:237,  auto:true,  paid:true,  acct:"inc" },
+  { id:5,  name:"LendingClub",     cat:"Debt",       day:8,   amt:581,  auto:true,  paid:true,  acct:"inc" },
+  { id:6,  name:"Amex",            cat:"Debt",       day:9,   amt:699,  auto:true,  paid:true,  acct:"inc" },
+  { id:7,  name:"Citi (1st)",      cat:"Debt",       day:7,   amt:88,   auto:true,  paid:true,  acct:"inc" },
+  { id:8,  name:"State Farm",      cat:"Insurance",  day:7,   amt:109,  auto:true,  paid:true,  acct:"inc" },
+  { id:9,  name:"Discover",        cat:"Debt",       day:14,  amt:103,  auto:true,  paid:true,  acct:"inc" },
+  { id:10, name:"Water (BWW)",     cat:"Utilities",  day:14,  amt:57,   auto:true,  paid:true,  acct:"inc" },
+  { id:11, name:"Upgrade Loan",    cat:"Debt",       day:13,  amt:579,  auto:true,  paid:true,  acct:"inc" },
+  { id:12, name:"Hyundai (HMF)",   cat:"Car",        day:13,  amt:665,  auto:true,  paid:true,  acct:"inc", note:"Verify settled" },
+  { id:13, name:"Ally Car",        cat:"Car",        day:12,  amt:555,  auto:true,  paid:true,  acct:"inc" },
+  { id:14, name:"Rocket Money",    cat:"Sub",        day:9,   amt:10,   auto:true,  paid:true,  acct:"inc" },
+  { id:15, name:"Mortgage",        cat:"Housing",    day:15,  amt:3923, auto:true,  paid:false, acct:"inc", note:"⚠ Verify with Newrez" },
+  { id:16, name:"GEICO",           cat:"Insurance",  day:23,  amt:269,  auto:true,  paid:false, acct:"inc" },
+  { id:17, name:"Spectrum",        cat:"Internet",   day:24,  amt:89,   auto:true,  paid:false, acct:"inc" },
+  { id:18, name:"Spire Gas",       cat:"Utilities",  day:22,  amt:91,   auto:true,  paid:false, acct:"inc" },
+  { id:19, name:"Ally Car (reg.)", cat:"Car",        day:25,  amt:530,  auto:true,  paid:false, acct:"inc" },
+  { id:20, name:"Student Loans",   cat:"Debt",       day:25,  amt:187,  auto:true,  paid:false, acct:"inc" },
+  { id:21, name:"Citi (2nd)",      cat:"Debt",       day:27,  amt:88,   auto:true,  paid:false, acct:"inc" },
+  { id:22, name:"Ardent (wk 4)",   cat:"Childcare",  day:27,  amt:351,  auto:true,  paid:false, acct:"wf"  },
+  { id:23, name:"Cleaning service",cat:"Home",       day:null,amt:150,  auto:false, paid:false, acct:"wf",  note:"Venmo ~$150" },
+];
+
+const DEFAULT_INCOME = [
+  { id:"prog", name:"Progress Residential", amt:3398, day:22, acct:"inc", note:"Update ACH to WF" },
+  { id:"seu",  name:"Southeastern Univ.",   amt:3011, day:6,  acct:"wf",  note:"Now on Wells Fargo" },
+];
+
+const DEBTS = [
+  { name:"Lowe's card",  balance:2000,  rate:26, min:53  },
+  { name:"Discover",     balance:3000,  rate:22, min:103 },
+  { name:"Citi",         balance:4000,  rate:20, min:175 },
+  { name:"Amex",         balance:8000,  rate:24, min:160 },
+  { name:"Upgrade",      balance:14000, rate:18, min:579 },
+  { name:"LendingClub",  balance:10000, rate:14, min:581 },
+  { name:"Student Loans",balance:15000, rate:6,  min:187 },
+  { name:"Ally Car",     balance:15000, rate:6.5,min:530 },
+  { name:"Hyundai",      balance:20000, rate:5,  min:665 },
+];
+
+const KEYS = { accounts:"ff:accounts4", budgets:"ff:budgets4", bills:"ff:bills4", income:"ff:income4" };
+
+async function load(key, fallback) {
+  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : fallback; }
+  catch { return fallback; }
+}
+async function save(key, data) {
+  try { await window.storage.set(key, JSON.stringify(data)); } catch {}
+}
+
+const fmt = (n) => "$" + Math.round(Math.abs(n)).toLocaleString();
+const today = new Date();
+const todayDay = today.getDate();
+const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+const monthPct = Math.round(todayDay / daysInMonth * 100);
+const MONTH = today.toLocaleString("default",{month:"long"}) + " " + today.getFullYear();
+function daysUntil(day) { if (!day) return null; const d=day-todayDay; return d<0?d+daysInMonth:d; }
+const nextId = (arr) => Math.max(0,...arr.map(x=>+(x.id)||0))+1;
+
+const inputSt = {
+  width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
+  borderRadius:8,color:"#e2e8f0",fontSize:13,padding:"7px 10px",fontFamily:"inherit",boxSizing:"border-box",
+};
+const btnSt = {
+  background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",
+  borderRadius:8,color:"#94a3b8",fontSize:11,padding:"5px 10px",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",
+};
+
+export default function App() {
+  const [tab, setTab]         = useState("cashflow");
+  const [accounts,setAccs]    = useState(null);
+  const [budgets, setBudgets] = useState(null);
+  const [bills,   setBills]   = useState(null);
+  const [income,  setIncome]  = useState(null);
+  const [ready,   setReady]   = useState(false);
+  const [expandD, setExpandD] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      load(KEYS.accounts, DEFAULT_ACCOUNTS),
+      load(KEYS.budgets,  DEFAULT_BUDGETS),
+      load(KEYS.bills,    DEFAULT_BILLS),
+      load(KEYS.income,   DEFAULT_INCOME),
+    ]).then(([a,b,bl,i]) => { setAccs(a);setBudgets(b);setBills(bl);setIncome(i);setReady(true); });
+  }, []);
+
+  const updA  = useCallback(fn => setAccs(p   => { const n=fn(p); save(KEYS.accounts,n); return n; }),[]);
+  const updB  = useCallback(fn => setBudgets(p => { const n=fn(p); save(KEYS.budgets,n); return n; }),[]);
+  const updBl = useCallback(fn => setBills(p   => { const n=fn(p); save(KEYS.bills,n);   return n; }),[]);
+  const updI  = useCallback(fn => setIncome(p  => { const n=fn(p); save(KEYS.income,n);  return n; }),[]);
+
+  if (!ready) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+      minHeight:"100vh",background:"#080d1a",color:"#475569",fontSize:13,flexDirection:"column",gap:8}}>
+      <div style={{fontSize:24}}>◎</div>
+      <div>Loading your finances...</div>
+    </div>
+  );
+
+  const totalBal  = accounts.reduce((s,a)=>s+a.balance,0);
+  const pendTotal = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.amt,0);
+  const incPend   = income.reduce((s,p)=>s+p.amt,0);
+  const projected = totalBal + incPend - pendTotal;
+
+  return (
+    <div style={{maxWidth:420,margin:"0 auto",minHeight:"100vh",background:"#080d1a",
+      color:"#e2e8f0",fontFamily:"'DM Sans','Segoe UI',sans-serif",paddingBottom:80}}>
+
+      {/* ── HEADER ── */}
+      <Header accounts={accounts} total={totalBal} updA={updA}/>
+
+      <div style={{padding:"14px 14px 0"}}>
+        {tab==="cashflow" && <CashFlow bills={bills} income={income} pendTotal={pendTotal} incPend={incPend} projected={projected} updBl={updBl}/>}
+        {tab==="budget"   && <Budget budgets={budgets} updB={updB}/>}
+        {tab==="debt"     && <Debt expandD={expandD} setExpandD={setExpandD}/>}
+        {tab==="bills"    && <BillsTab bills={bills} income={income} updBl={updBl} updI={updI}/>}
+      </div>
+
+      {/* ── NAV ── */}
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",
+        width:"100%",maxWidth:420,background:"rgba(8,13,26,0.97)",backdropFilter:"blur(12px)",
+        borderTop:"1px solid rgba(255,255,255,0.07)",
+        display:"flex",justifyContent:"space-around",padding:"8px 0 14px",zIndex:100}}>
+        {[{id:"cashflow",l:"Cash Flow",ic:"◎"},{id:"budget",l:"Budget",ic:"◈"},
+          {id:"debt",l:"Debt",ic:"◉"},{id:"bills",l:"Bills",ic:"◷"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            background:"none",border:"none",cursor:"pointer",
+            display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 14px",
+            color:tab===t.id?"#3b82f6":"#334155",transition:"color 0.2s"}}>
+            <span style={{fontSize:18}}>{t.ic}</span>
+            <span style={{fontSize:10,fontWeight:tab===t.id?600:400}}>{t.l}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── HEADER ────────────────────────────────────────────────────────────────── */
+function Header({accounts,total,updA}) {
+  const [open,setOpen]=useState(false);
+  const [eid,setEid]=useState(null);
+  return (
+    <div style={{background:"linear-gradient(160deg,#0f172a 0%,#1a2744 100%)",
+      padding:"18px 18px 14px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{fontSize:11,color:"#475569",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>{MONTH} · Day {todayDay}</div>
+          <div style={{fontSize:12,color:"#64748b"}}>Family Finance</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:10,color:"#475569",marginBottom:2}}>Total balance</div>
+          <div style={{fontSize:22,fontWeight:700,color:total<500?"#f87171":total<2000?"#fbbf24":"#34d399"}}>{fmt(total)}</div>
+        </div>
+      </div>
+
+      <div style={{marginTop:10,cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {accounts.map(a=>(
+            <div key={a.id} style={{display:"inline-flex",alignItems:"center",gap:5,
+              background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",
+              borderRadius:20,padding:"3px 10px",fontSize:11}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
+              <span style={{color:"#94a3b8"}}>{a.name.split(" ")[0]}</span>
+              <span style={{color:"#e2e8f0",fontWeight:600}}>{fmt(a.balance)}</span>
+            </div>
+          ))}
+          <span style={{fontSize:10,color:"#334155",alignSelf:"center"}}>{open?"▲":"▼"}</span>
+        </div>
+
+        {open && (
+          <div style={{marginTop:8,background:"rgba(255,255,255,0.04)",
+            border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"10px 12px"}}>
+            {accounts.map(a=>(
+              <div key={a.id} style={{marginBottom:8}}>
+                {eid===a.id ? (
+                  <AcctEdit a={a}
+                    onSave={u=>{updA(p=>p.map(x=>x.id===a.id?u:x));setEid(null);}}
+                    onCancel={()=>setEid(null)}/>
+                ) : (
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{width:8,height:8,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
+                        <span style={{fontSize:12,fontWeight:500}}>{a.name}</span>
+                      </div>
+                      {a.note&&<div style={{fontSize:11,color:"#475569",paddingLeft:14,marginTop:1}}>{a.note}</div>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:14,fontWeight:700,color:a.color}}>{fmt(a.balance)}</span>
+                      <button onClick={e=>{e.stopPropagation();setEid(a.id);}} style={btnSt}>Edit</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            <button onClick={e=>{e.stopPropagation();updA(p=>[...p,{id:"a"+Date.now(),name:"New Account",balance:0,color:"#64748b",note:""}]);}}
+              style={{...btnSt,width:"100%",marginTop:2}}>+ Add account</button>
+          </div>
+        )}
+      </div>
+
+      <div style={{marginTop:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#475569",marginBottom:3}}>
+          <span>{monthPct}% through {today.toLocaleString("default",{month:"long"})}</span>
+          <span>{daysInMonth-todayDay} days left</span>
+        </div>
+        <div style={{height:3,background:"rgba(255,255,255,0.07)",borderRadius:2}}>
+          <div style={{height:"100%",width:`${monthPct}%`,background:"#3b82f6",borderRadius:2}}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AcctEdit({a,onSave,onCancel}) {
+  const [name,setName]=useState(a.name);
+  const [bal,setBal]=useState(String(a.balance));
+  const [note,setNote]=useState(a.note||"");
+  return (
+    <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:10,padding:"10px 12px"}}>
+      <input value={name} onChange={e=>setName(e.target.value)} placeholder="Name" style={{...inputSt,marginBottom:6}}/>
+      <input value={bal}  onChange={e=>setBal(e.target.value)}  placeholder="Balance" type="number" style={{...inputSt,marginBottom:6}}/>
+      <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note" style={{...inputSt,marginBottom:8}}/>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>onSave({...a,name,balance:parseFloat(bal)||0,note})}
+          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
+        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── CASH FLOW ─────────────────────────────────────────────────────────────── */
+function CashFlow({bills,income,pendTotal,incPend,projected,updBl}) {
+  const pending  = bills.filter(b=>!b.paid);
+  const paid     = bills.filter(b=>b.paid);
+  const thisWeek = pending.filter(b=>b.day&&daysUntil(b.day)>=0&&daysUntil(b.day)<=6).sort((a,b)=>daysUntil(a.day)-daysUntil(b.day));
+  const later    = pending.filter(b=>b.day&&daysUntil(b.day)>6).sort((a,b)=>daysUntil(a.day)-daysUntil(b.day));
+  const variable = pending.filter(b=>!b.day);
+  const tog = id => updBl(p=>p.map(b=>b.id===id?{...b,paid:!b.paid}:b));
+
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <Crd label="Income pending" value={fmt(incPend)} color="#34d399" sub={`${income.length} paychecks`}/>
+        <Crd label="Bills pending" value={fmt(pendTotal)} color="#f87171" sub={`${pending.length} items`}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+        background:projected<500?"rgba(239,68,68,0.09)":"rgba(52,211,153,0.07)",
+        border:`1px solid ${projected<500?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.15)"}`,
+        borderRadius:10,padding:"10px 14px",marginBottom:10}}>
+        <span style={{fontSize:12,color:"#94a3b8"}}>Projected month-end</span>
+        <span style={{fontSize:18,fontWeight:700,color:projected<0?"#f87171":projected<500?"#fbbf24":"#34d399"}}>{fmt(projected)}</span>
+      </div>
+
+      {bills.find(b=>b.id===15&&!b.paid)&&(
+        <Alrt color="red" msg="⚠ Mortgage not confirmed paid — verify with Newrez"/>
+      )}
+
+      <Hdr label="Paychecks"/>
+      {income.map(p=>(
+        <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+          padding:"10px 13px",marginBottom:6,background:"rgba(52,211,153,0.07)",
+          border:"1px solid rgba(52,211,153,0.15)",borderRadius:10}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:500,color:"#a7f3d0"}}>{p.name}</div>
+            <div style={{fontSize:11,color:"#475569",marginTop:2}}>Day {p.day}
+              {p.note&&<span style={{color:"#f59e0b",marginLeft:5}}>· {p.note}</span>}
+            </div>
+          </div>
+          <span style={{fontSize:15,fontWeight:700,color:"#34d399"}}>{fmt(p.amt)}</span>
+        </div>
+      ))}
+
+      {thisWeek.length>0&&<><Hdr label="Due this week" color="#f87171"/>{thisWeek.map(b=><BC key={b.id} b={b} onTog={()=>tog(b.id)}/>)}</>}
+      {later.length>0&&<><Hdr label="Later this month"/>{later.map(b=><BC key={b.id} b={b} onTog={()=>tog(b.id)}/>)}</>}
+      {variable.length>0&&<><Hdr label="No fixed date"/>{variable.map(b=><BC key={b.id} b={b} onTog={()=>tog(b.id)}/>)}</>}
+
+      {paid.length>0&&(
+        <><Hdr label={`Paid (${paid.length})`} color="#334155"/>
+        {paid.map(b=>(
+          <div key={b.id} onClick={()=>tog(b.id)}
+            style={{display:"flex",justifyContent:"space-between",padding:"6px 12px",marginBottom:3,opacity:0.4,cursor:"pointer"}}>
+            <span style={{fontSize:12,color:"#475569",textDecoration:"line-through"}}>{b.name}</span>
+            <span style={{fontSize:12,color:"#334155"}}>✓ {fmt(b.amt)}</span>
+          </div>
+        ))}</>
+      )}
+    </div>
+  );
+}
+
+function BC({b,onTog}) {
+  const d=b.day?daysUntil(b.day):null;
+  const urg=d!==null&&d<=3;
+  return (
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+      padding:"10px 13px",marginBottom:6,
+      background:urg?"rgba(239,68,68,0.08)":"rgba(255,255,255,0.03)",
+      border:`1px solid ${urg?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.07)"}`,borderRadius:10}}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:13,fontWeight:500}}>{b.name}</div>
+        <div style={{fontSize:11,color:"#475569",marginTop:2}}>
+          {b.cat}{b.auto&&<span style={{color:"#34d399",marginLeft:5}}>✓ auto</span>}
+          {b.acct==="wf"&&<span style={{color:"#f59e0b",marginLeft:5}}>· WF</span>}
+          {b.note&&<span style={{color:b.note.includes("⚠")?"#fca5a5":"#fbbf24",marginLeft:5}}>· {b.note}</span>}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:8}}>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:14,fontWeight:600}}>{fmt(b.amt)}</div>
+          <div style={{fontSize:11,color:urg?"#f87171":"#475569"}}>{!b.day?"variable":d===0?"today":`in ${d}d`}</div>
+        </div>
+        <button onClick={onTog} style={{width:28,height:28,borderRadius:"50%",border:"1.5px solid rgba(52,211,153,0.3)",
+          cursor:"pointer",background:"transparent",fontSize:13,color:"#34d399",flexShrink:0}}>✓</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── BUDGET ────────────────────────────────────────────────────────────────── */
+function Budget({budgets,updB}) {
+  const [eid,setEid]=useState(null);
+  const [adding,setAdding]=useState(false);
+  const total  = budgets.reduce((s,c)=>s+c.budget,0);
+  const spent  = budgets.reduce((s,c)=>s+c.spent, 0);
+  const overN  = budgets.filter(c=>c.spent>c.budget).length;
+  const updCat = (id,field,val) => updB(p=>p.map(c=>c.id===id?{...c,[field]:val}:c));
+  const delCat = (id)           => updB(p=>p.filter(c=>c.id!==id));
+
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <Crd label="Monthly budget" value={fmt(total)} color="#64748b" sub="all categories"/>
+        <Crd label={`Spent (${today.toLocaleString("default",{month:"short"})})`} value={fmt(spent)}
+          color={spent>total?"#f87171":"#fbbf24"} sub={`${overN} over budget`}/>
+      </div>
+      {overN>0&&<Alrt color="red" msg={`${overN} categories over · ${fmt(spent-total)} total overage this month`}/>}
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,marginTop:4}}>
+        <Hdr label="Categories" inline/>
+        <button onClick={()=>setAdding(true)} style={btnSt}>+ Add</button>
+      </div>
+
+      {adding&&<CatEdit onSave={c=>{updB(p=>[...p,{...c,id:"c"+Date.now()}]);setAdding(false);}} onCancel={()=>setAdding(false)}/>}
+
+      {budgets.map(cat=>{
+        const pct=cat.budget>0?cat.spent/cat.budget:0;
+        const over=cat.spent>cat.budget;
+        return (
+          <div key={cat.id} style={{background:"rgba(255,255,255,0.03)",
+            border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"11px 13px",marginBottom:7}}>
+            {eid===cat.id ? (
+              <CatEdit initial={cat}
+                onSave={u=>{updB(p=>p.map(c=>c.id===cat.id?{...c,...u}:c));setEid(null);}}
+                onCancel={()=>setEid(null)}
+                onDelete={()=>{delCat(cat.id);setEid(null);}}/>
+            ) : (
+              <>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{fontSize:16}}>{cat.icon}</span>
+                    <span style={{fontSize:13,fontWeight:500}}>{cat.name}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div>
+                      <SpendIn value={cat.spent} over={over} onChange={v=>updCat(cat.id,"spent",v)}/>
+                      <span style={{fontSize:11,color:"#475569",marginLeft:3}}>/ {fmt(cat.budget)}</span>
+                    </div>
+                    <button onClick={()=>setEid(cat.id)} style={btnSt}>···</button>
+                  </div>
+                </div>
+                <div style={{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3}}>
+                  <div style={{height:"100%",borderRadius:3,width:`${Math.min(pct,1)*100}%`,
+                    background:over?"#ef4444":pct>0.8?"#fbbf24":cat.color}}/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10,color:"#334155"}}>
+                  <span style={{color:over?"#f87171":"#334155"}}>{over?`Over ${fmt(cat.spent-cat.budget)}`:`${fmt(cat.budget-cat.spent)} left`}</span>
+                  <span>On-pace: {fmt(Math.round(cat.budget*monthPct/100))}</span>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SpendIn({value,onChange,over}) {
+  const [ed,setEd]=useState(false);
+  const [v,setV]=useState(String(Math.round(value)));
+  if (ed) return (
+    <input type="number" value={v} autoFocus onChange={e=>setV(e.target.value)}
+      onBlur={()=>{onChange(parseFloat(v)||0);setEd(false);}}
+      onKeyDown={e=>{if(e.key==="Enter"){onChange(parseFloat(v)||0);setEd(false);}}}
+      style={{width:72,background:"rgba(255,255,255,0.08)",border:"1px solid #3b82f6",
+        borderRadius:6,color:over?"#f87171":"#e2e8f0",fontSize:13,padding:"2px 6px",textAlign:"right"}}/>
+  );
+  return (
+    <span onClick={()=>setEd(true)} style={{fontSize:14,fontWeight:700,cursor:"pointer",
+      color:over?"#f87171":"#e2e8f0",borderBottom:"1px dashed rgba(255,255,255,0.15)"}}>
+      {fmt(value)}
+    </span>
+  );
+}
+
+function CatEdit({initial,onSave,onCancel,onDelete}) {
+  const [name,setName]=useState(initial?.name||"");
+  const [bud,setBud]=useState(initial?.budget||"");
+  const [sp,setSp]=useState(initial?.spent||"");
+  const [icon,setIcon]=useState(initial?.icon||"💰");
+  return (
+    <div style={{background:"rgba(59,130,246,0.07)",border:"1px solid rgba(59,130,246,0.18)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+      <div style={{display:"grid",gridTemplateColumns:"40px 1fr",gap:6,marginBottom:6}}>
+        <input value={icon} onChange={e=>setIcon(e.target.value)} placeholder="Icon" style={{...inputSt,textAlign:"center",fontSize:18,padding:"4px"}}/>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Category name" style={inputSt}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+        <input value={bud} onChange={e=>setBud(e.target.value)} placeholder="Budget $" type="number" style={inputSt}/>
+        <input value={sp}  onChange={e=>setSp(e.target.value)}  placeholder="Spent $"  type="number" style={inputSt}/>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>onSave({name,budget:parseFloat(bud)||0,spent:parseFloat(sp)||0,icon,color:"#64748b"})}
+          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
+        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
+        {onDelete&&<button onClick={onDelete} style={{...btnSt,background:"rgba(239,68,68,0.12)",color:"#f87171"}}>Delete</button>}
+      </div>
+    </div>
+  );
+}
+
+/* ── BILLS TAB ─────────────────────────────────────────────────────────────── */
+function BillsTab({bills,income,updBl,updI}) {
+  const [filter,setFilter]=useState("pending");
+  const [eid,setEid]=useState(null);
+  const [addB,setAddB]=useState(false);
+  const [addI,setAddI]=useState(false);
+  const pAmt=bills.filter(b=>!b.paid).reduce((s,b)=>s+b.amt,0);
+  const dAmt=bills.filter(b=> b.paid).reduce((s,b)=>s+b.amt,0);
+  const shown=filter==="all"?bills:filter==="pending"?bills.filter(b=>!b.paid):bills.filter(b=>b.paid);
+  const tog  =id=>updBl(p=>p.map(b=>b.id===id?{...b,paid:!b.paid}:b));
+  const del  =id=>updBl(p=>p.filter(b=>b.id!==id));
+  const savB =b=>{ if(b.id&&bills.find(x=>x.id===b.id)){updBl(p=>p.map(x=>x.id===b.id?b:x));}else{updBl(p=>[...p,{...b,id:nextId(bills)}]);} setEid(null);setAddB(false); };
+  const delI =id=>updI(p=>p.filter(x=>x.id!==id));
+  const savI =p=>{ if(p.id&&income.find(x=>x.id===p.id)){updI(prev=>prev.map(x=>x.id===p.id?p:x));}else{updI(prev=>[...prev,{...p,id:"i"+Date.now()}]);} setAddI(false); };
+
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <Crd label="Pending" value={fmt(pAmt)} color="#f87171" sub={`${bills.filter(b=>!b.paid).length} bills`}/>
+        <Crd label="Paid"    value={fmt(dAmt)} color="#34d399" sub={`${bills.filter(b=>b.paid).length} bills`}/>
+      </div>
+
+      {/* Income */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <Hdr label="Paychecks" inline/><button onClick={()=>setAddI(true)} style={btnSt}>+ Add</button>
+      </div>
+      {addI&&<IncEdit onSave={savI} onCancel={()=>setAddI(false)}/>}
+      {income.map(p=>(
+        <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+          padding:"9px 13px",marginBottom:5,background:"rgba(52,211,153,0.07)",
+          border:"1px solid rgba(52,211,153,0.15)",borderRadius:10}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:500,color:"#a7f3d0"}}>{p.name}</div>
+            <div style={{fontSize:11,color:"#475569",marginTop:2}}>Day {p.day} · {p.acct==="wf"?"Wells Fargo":"Old bank"}
+              {p.note&&<span style={{color:"#f59e0b",marginLeft:5}}>· {p.note}</span>}
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:14,fontWeight:700,color:"#34d399"}}>{fmt(p.amt)}</span>
+            <button onClick={()=>delI(p.id)} style={{...btnSt,color:"#f87171"}}>✕</button>
+          </div>
+        </div>
+      ))}
+
+      {/* Bills */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,marginBottom:8}}>
+        <div style={{display:"flex",gap:6}}>
+          {[["pending","Pending"],["paid","Paid"],["all","All"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setFilter(v)} style={{
+              padding:"4px 12px",borderRadius:20,border:"1px solid",fontSize:11,cursor:"pointer",
+              background:filter===v?"rgba(59,130,246,0.18)":"transparent",
+              borderColor:filter===v?"#3b82f6":"rgba(255,255,255,0.1)",
+              color:filter===v?"#93c5fd":"#475569"}}>{l}</button>
+          ))}
+        </div>
+        <button onClick={()=>setAddB(true)} style={btnSt}>+ Add</button>
+      </div>
+
+      {addB&&<BillEdit onSave={savB} onCancel={()=>setAddB(false)}/>}
+
+      {shown.sort((a,b)=>(a.day||99)-(b.day||99)).map(b=>(
+        eid===b.id ? (
+          <BillEdit key={b.id} initial={b} onSave={savB} onCancel={()=>setEid(null)} onDelete={()=>{del(b.id);setEid(null);}}/>
+        ) : (
+          <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"10px 13px",marginBottom:6,
+            background:b.paid?"rgba(255,255,255,0.02)":"rgba(255,255,255,0.03)",
+            border:`1px solid ${b.paid?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.08)"}`,
+            borderRadius:10,opacity:b.paid?0.55:1}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:500,textDecoration:b.paid?"line-through":"none",
+                color:b.paid?"#475569":"#e2e8f0"}}>{b.name}</div>
+              <div style={{fontSize:11,color:"#334155",marginTop:2}}>
+                {b.cat}{b.day?` · day ${b.day}`:" · variable"}
+                {b.auto&&<span style={{color:"#34d399",marginLeft:4}}>✓ auto</span>}
+                {b.acct==="wf"&&<span style={{color:"#f59e0b",marginLeft:4}}>· WF</span>}
+                {b.note&&<span style={{color:"#fbbf24",marginLeft:4}}>· {b.note}</span>}
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:14,fontWeight:600}}>{fmt(b.amt)}</div>
+                {!b.paid&&b.day&&<div style={{fontSize:11,color:daysUntil(b.day)<=3?"#f87171":"#475569"}}>
+                  {daysUntil(b.day)===0?"today":`in ${daysUntil(b.day)}d`}</div>}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                <button onClick={()=>tog(b.id)} style={{...btnSt,color:b.paid?"#475569":"#34d399",
+                  borderColor:b.paid?"rgba(255,255,255,0.06)":"rgba(52,211,153,0.3)"}}>{b.paid?"↩":"✓"}</button>
+                <button onClick={()=>setEid(b.id)} style={btnSt}>···</button>
+              </div>
+            </div>
+          </div>
+        )
+      ))}
+    </div>
+  );
+}
+
+function BillEdit({initial,onSave,onCancel,onDelete}) {
+  const [name,setName]=useState(initial?.name||"");
+  const [cat,setCat]=useState(initial?.cat||"");
+  const [day,setDay]=useState(initial?.day||"");
+  const [amt,setAmt]=useState(initial?.amt||"");
+  const [auto,setAuto]=useState(initial?.auto||false);
+  const [acct,setAcct]=useState(initial?.acct||"inc");
+  const [note,setNote]=useState(initial?.note||"");
+  return (
+    <div style={{background:"rgba(59,130,246,0.07)",border:"1px solid rgba(59,130,246,0.18)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Bill name" style={inputSt}/>
+        <input value={cat}  onChange={e=>setCat(e.target.value)}  placeholder="Category"  style={inputSt}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <input value={day} onChange={e=>setDay(e.target.value)} placeholder="Day of month" type="number" style={inputSt}/>
+        <input value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount $"     type="number" style={inputSt}/>
+      </div>
+      <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional)" style={{...inputSt,marginBottom:8}}/>
+      <div style={{display:"flex",gap:12,marginBottom:10,fontSize:12}}>
+        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",color:"#94a3b8"}}>
+          <input type="checkbox" checked={auto} onChange={e=>setAuto(e.target.checked)}/> Autopay
+        </label>
+        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",color:"#94a3b8"}}>
+          Account:
+          <select value={acct} onChange={e=>setAcct(e.target.value)}
+            style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",
+              borderRadius:6,color:"#e2e8f0",padding:"2px 6px",fontSize:11}}>
+            <option value="wf">Wells Fargo</option>
+            <option value="inc">Old bank</option>
+          </select>
+        </label>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>onSave({...(initial||{}),name,cat,day:parseInt(day)||null,
+          amt:parseFloat(amt)||0,auto,acct,note,paid:initial?.paid||false})}
+          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
+        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
+        {onDelete&&<button onClick={onDelete} style={{...btnSt,background:"rgba(239,68,68,0.12)",color:"#f87171"}}>Delete</button>}
+      </div>
+    </div>
+  );
+}
+
+function IncEdit({initial,onSave,onCancel}) {
+  const [name,setName]=useState(initial?.name||"");
+  const [amt,setAmt]=useState(initial?.amt||"");
+  const [day,setDay]=useState(initial?.day||"");
+  const [acct,setAcct]=useState(initial?.acct||"wf");
+  const [note,setNote]=useState(initial?.note||"");
+  return (
+    <div style={{background:"rgba(52,211,153,0.06)",border:"1px solid rgba(52,211,153,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Payer name" style={inputSt}/>
+        <input value={amt}  onChange={e=>setAmt(e.target.value)}  placeholder="Amount $" type="number" style={inputSt}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <input value={day}  onChange={e=>setDay(e.target.value)}  placeholder="Pay day" type="number" style={inputSt}/>
+        <select value={acct} onChange={e=>setAcct(e.target.value)} style={{...inputSt,appearance:"none"}}>
+          <option value="wf">Wells Fargo</option>
+          <option value="inc">Old bank</option>
+        </select>
+      </div>
+      <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional)" style={{...inputSt,marginBottom:8}}/>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>onSave({...(initial||{}),name,amt:parseFloat(amt)||0,day:parseInt(day)||1,acct,note})}
+          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
+        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── DEBT ──────────────────────────────────────────────────────────────────── */
+function Debt({expandD,setExpandD}) {
+  const total  = DEBTS.reduce((s,d)=>s+d.balance,0);
+  const minPmt = DEBTS.reduce((s,d)=>s+d.min,0);
+  const sorted = [...DEBTS].sort((a,b)=>b.rate-a.rate);
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <Crd label="Total debt" value={fmt(total)} color="#f87171" sub="all accounts"/>
+        <Crd label="Min payments" value={fmt(minPmt)} color="#64748b" sub="/month"/>
+      </div>
+      <Alrt color="blue" msg="Tap any debt to expand · Update balances monthly in Excel workbook"/>
+      <Hdr label="Attack order — highest rate first"/>
+      {sorted.map((d,i)=>{
+        const open=expandD===d.name;
+        return (
+          <div key={d.name} onClick={()=>setExpandD(open?null:d.name)}
+            style={{background:i===0?"rgba(239,68,68,0.09)":"rgba(255,255,255,0.03)",
+              border:`1px solid ${i===0?"rgba(239,68,68,0.25)":"rgba(255,255,255,0.07)"}`,
+              borderRadius:10,padding:"11px 13px",marginBottom:7,cursor:"pointer"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                {i===0&&<span style={{fontSize:9,background:"#ef4444",color:"#fff",padding:"1px 6px",borderRadius:10,fontWeight:700}}>ATTACK</span>}
+                <span style={{fontSize:13,fontWeight:500}}>{d.name}</span>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:14,fontWeight:700}}>{fmt(d.balance)}</div>
+                <div style={{fontSize:11,color:"#ef4444"}}>{d.rate}% APR</div>
+              </div>
+            </div>
+            {open&&(
+              <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid rgba(255,255,255,0.07)",fontSize:12,color:"#94a3b8"}}>
+                {[["Min payment",fmt(d.min)+"/mo"],
+                  ["At min only","~"+Math.ceil(d.balance/d.min)+" months"],
+                  ["Monthly interest",fmt(Math.round(d.balance*d.rate/100/12))]
+                ].map(([k,v])=>(
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <span>{k}</span><span style={{color:"#e2e8f0"}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── SHARED ────────────────────────────────────────────────────────────────── */
+function Crd({label,value,color,sub}) {
+  return (
+    <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:11,padding:"11px 13px"}}>
+      <div style={{fontSize:10,color:"#475569",marginBottom:3}}>{label}</div>
+      <div style={{fontSize:19,fontWeight:700,color}}>{value}</div>
+      <div style={{fontSize:10,color:"#334155",marginTop:2}}>{sub}</div>
+    </div>
+  );
+}
+function Hdr({label,color,inline}) {
+  const el=<span style={{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",color:color||"#3b82f6"}}>{label}</span>;
+  return inline?el:<div style={{marginBottom:7,marginTop:8}}>{el}</div>;
+}
+function Alrt({color,msg}) {
+  const c=color==="red"?{bg:"rgba(239,68,68,0.08)",bd:"rgba(239,68,68,0.2)",tx:"#fca5a5"}
+    :color==="amber"?{bg:"rgba(251,191,36,0.08)",bd:"rgba(251,191,36,0.2)",tx:"#fde68a"}
+    :{bg:"rgba(59,130,246,0.07)",bd:"rgba(59,130,246,0.18)",tx:"#93c5fd"};
+  return <div style={{background:c.bg,border:`1px solid ${c.bd}`,borderRadius:10,padding:"9px 13px",marginBottom:10,fontSize:12,color:c.tx}}>{msg}</div>;
+}
+
+
+    // Mount app
+    const container = document.getElementById('root');
+    const root = ReactDOM.createRoot(container);
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
