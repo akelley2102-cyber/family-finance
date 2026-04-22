@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -7,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Family Finance"/>
-  <meta name="description" content="Family budget, bills &amp; cash flow tracker"/>
+  <meta name="description" content="Family budget, bills and cash flow tracker"/>
   <title>Family Finance</title>
   <link rel="manifest" href="manifest.json"/>
   <link rel="apple-touch-icon" href="icons/icon-192.png"/>
@@ -20,40 +21,51 @@
     button{-webkit-tap-highlight-color:transparent;user-select:none;font-family:inherit}
     input,select,textarea{font-family:inherit}
     input[type=number]::-webkit-inner-spin-button{opacity:1}
+    select{-webkit-appearance:none}
   </style>
 </head>
 <body>
   <div id="root">
-    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#080d1a;color:#64748b;font-family:sans-serif;flex-direction:column;gap:10px">
+    <div id="splash" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#080d1a;color:#64748b;font-family:sans-serif;flex-direction:column;gap:10px">
       <div style="font-size:36px">◎</div>
-      <div style="font-size:14px">Loading Family Finance...</div>
+      <div style="font-size:14px">Loading...</div>
     </div>
   </div>
 
-  <!-- React from CDN -->
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <!-- Babel to transpile JSX in browser -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <!-- React 18 from CDN -->
 
-  <!-- localStorage-based storage (works everywhere) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+
+  <!-- localStorage storage adapter -->
+
   <script>
     window.storage = {
-      get:    async (k)   => { try { const v=localStorage.getItem(k); return v?{key:k,value:v}:null; } catch(e){return null;} },
-      set:    async (k,v) => { try { localStorage.setItem(k,String(v)); return {key:k,value:v}; } catch(e){return null;} },
-      delete: async (k)   => { try { localStorage.removeItem(k); return {key:k,deleted:true}; } catch(e){return null;} },
-      list:   async (pfx) => { try { const ks=Object.keys(localStorage).filter(k=>!pfx||k.startsWith(pfx)); return {keys:ks}; } catch(e){return {keys:[]};} }
+      get:    async function(k)   { try{var v=localStorage.getItem(k);return v?{key:k,value:v}:null;}catch(e){return null;} },
+      set:    async function(k,v) { try{localStorage.setItem(k,String(v));return{key:k,value:v};}catch(e){return null;} },
+      delete: async function(k)   { try{localStorage.removeItem(k);return{key:k,deleted:true};}catch(e){return null;} },
+      list:   async function(pfx) { try{var ks=Object.keys(localStorage).filter(function(k){return!pfx||k.startsWith(pfx)});return{keys:ks};}catch(e){return{keys:[]};} }
     };
     if('serviceWorker' in navigator){
-      window.addEventListener('load',()=>{
-        navigator.serviceWorker.register('sw.js').catch(()=>{});
+      window.addEventListener('load',function(){
+        navigator.serviceWorker.register('sw.js').catch(function(){});
       });
     }
   </script>
 
-  <!-- App -->
-  <script type="text/babel">
-    const { useState, useEffect, useCallback, useRef } = React;
+  <!-- Babel standalone — transpile JSX to JS in browser -->
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <!-- App code (JSX, transpiled by Babel at runtime) -->
+
+  <script type="text/babel" data-presets="react">
+    (function() {
+      var useState    = React.useState;
+      var useEffect   = React.useEffect;
+      var useCallback = React.useCallback;
+      var useRef      = React.useRef;
 
 
 const DEFAULT_ACCOUNTS = [
@@ -147,7 +159,7 @@ const btnSt = {
   borderRadius:8,color:"#94a3b8",fontSize:11,padding:"5px 10px",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",
 };
 
-export default function App() {
+function App() {
   const [tab, setTab]         = useState("cashflow");
   const [accounts,setAccs]    = useState(null);
   const [budgets, setBudgets] = useState(null);
@@ -754,10 +766,12 @@ function Alrt({color,msg}) {
 }
 
 
-    // Mount app
-    const container = document.getElementById('root');
-    const root = ReactDOM.createRoot(container);
-    root.render(React.createElement(App));
+      // Mount
+      var container = document.getElementById('root');
+      var root = ReactDOM.createRoot(container);
+      root.render(React.createElement(App));
+    })();
   </script>
+
 </body>
 </html>
