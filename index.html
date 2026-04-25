@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+l<!DOCTYPE html>
 
 <html lang="en">
 <head>
@@ -8,7 +8,6 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Family Finance"/>
-  <meta name="description" content="Family budget, bills and cash flow tracker"/>
   <title>Family Finance</title>
   <link rel="manifest" href="manifest.json"/>
   <link rel="apple-touch-icon" href="icons/icon-192.png"/>
@@ -21,893 +20,710 @@
     button{-webkit-tap-highlight-color:transparent;user-select:none;font-family:inherit}
     input,select,textarea{font-family:inherit}
     input[type=number]::-webkit-inner-spin-button{opacity:1}
-    select{-webkit-appearance:none}
   </style>
 </head>
 <body>
-  <div id="root">
-    <div id="splash" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#080d1a;color:#64748b;font-family:sans-serif;flex-direction:column;gap:10px">
-      <div style="font-size:36px">◎</div>
-      <div style="font-size:14px">Loading Family Finance...</div>
-      <div id="sync-status" style="font-size:11px;color:#475569;margin-top:4px"></div>
-    </div>
+<div id="root">
+  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#080d1a;color:#64748b;font-family:sans-serif;flex-direction:column;gap:10px">
+    <div style="font-size:36px">◎</div>
+    <div style="font-size:14px">Loading Family Finance...</div>
+    <div id="sync-status" style="font-size:11px;color:#475569;margin-top:4px"></div>
   </div>
+</div>
 
-  <!-- React 18 from CDN -->
+<!-- React + htm (no Babel needed, loads fast) -->
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-  <!-- Firebase compat SDK (global scope, no module needed) -->
+<script src="https://unpkg.com/htm@3.1.1/dist/htm.js"></script>
 
-  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+<!-- Firebase -->
 
-  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 
-  <script>
-    var firebaseConfig = {
-      apiKey: "AIzaSyCKHN2Qb_rpWGwgvSfHCNQ84kz0FQy1X00",
-      authDomain: "family-finance-1596d.firebaseapp.com",
-      projectId: "family-finance-1596d",
-      storageBucket: "family-finance-1596d.firebasestorage.app",
-      messagingSenderId: "567138404714",
-      appId: "1:567138404714:web:0cfb9b67156856d3de3d13"
-    };
-    firebase.initializeApp(firebaseConfig);
-    var db   = firebase.firestore();
-    var COLL = "family-finance";
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-    function setSyncStatus(msg, color) {
-      var els = document.querySelectorAll('#sync-status');
-      els.forEach(function(el) { el.textContent = msg; el.style.color = color || '#64748b'; });
-    }
+<script>
+// ── Firebase setup ────────────────────────────────────────────────────────────
+firebase.initializeApp({
+  apiKey:"AIzaSyCKHN2Qb_rpWGwgvSfHCNQ84kz0FQy1X00",
+  authDomain:"family-finance-1596d.firebaseapp.com",
+  projectId:"family-finance-1596d",
+  storageBucket:"family-finance-1596d.firebasestorage.app",
+  messagingSenderId:"567138404714",
+  appId:"1:567138404714:web:0cfb9b67156856d3de3d13"
+});
+var db = firebase.firestore();
+var COLL = "family-finance";
 
-    window.storage = {
-      get: async function(k) {
-        try {
-          var snap = await db.collection(COLL).doc(k).get();
-          if (snap.exists) return { key: k, value: snap.data().value };
-          var local = localStorage.getItem(k);
-          if (local) {
-            // Migrate local data up to Firestore on first load
-            db.collection(COLL).doc(k).set({ value: local, updated: new Date().toISOString() }).catch(function(){});
-            return { key: k, value: local };
-          }
-          return null;
-        } catch(e) {
-          var v = localStorage.getItem(k);
-          return v ? { key: k, value: v } : null;
-        }
-      },
-      set: async function(k, v) {
-        localStorage.setItem(k, String(v));
-        try {
-          await db.collection(COLL).doc(k).set({ value: String(v), updated: new Date().toISOString() });
-          setSyncStatus('✓ Synced', '#34d399');
-          setTimeout(function(){ setSyncStatus(''); }, 2000);
-        } catch(e) {
-          setSyncStatus('● Offline', '#fbbf24');
-        }
-        return { key: k, value: v };
-      },
-      delete: async function(k) {
-        localStorage.removeItem(k);
-        try { await db.collection(COLL).doc(k).delete(); } catch(e) {}
-        return { key: k, deleted: true };
-      },
-      list: async function(pfx) {
-        try {
-          var snap = await db.collection(COLL).get();
-          var keys = [];
-          snap.forEach(function(d) { if (!pfx || d.id.startsWith(pfx)) keys.push(d.id); });
-          return { keys: keys };
-        } catch(e) {
-          var ks = Object.keys(localStorage).filter(function(k){ return !pfx || k.startsWith(pfx); });
-          return { keys: ks };
-        }
+function setSyncStatus(msg, color) {
+  document.querySelectorAll('#sync-status').forEach(function(el){
+    el.textContent = msg;
+    el.style.color = color || '#64748b';
+  });
+}
+
+window.storage = {
+  get: async function(k) {
+    try {
+      var snap = await db.collection(COLL).doc(k).get();
+      if (snap.exists) return {key:k, value:snap.data().value};
+      var local = localStorage.getItem(k);
+      if (local) {
+        db.collection(COLL).doc(k).set({value:local, updated:new Date().toISOString()}).catch(function(){});
+        return {key:k, value:local};
       }
-    };
-
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function(){
-        navigator.serviceWorker.register('sw.js').catch(function(){});
-      });
+      return null;
+    } catch(e) {
+      var v = localStorage.getItem(k);
+      return v ? {key:k, value:v} : null;
     }
-  </script>
-
-  <!-- Babel standalone — transpile JSX to JS in browser -->
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-
-  <!-- App code (JSX, transpiled by Babel at runtime) -->
-
-  <script type="text/babel" data-presets="react">
-    (function() {
-      var useState    = React.useState;
-      var useEffect   = React.useEffect;
-      var useCallback = React.useCallback;
-      var useRef      = React.useRef;
-
-
-const DEFAULT_ACCOUNTS = [
-  { id:"wf",  name:"Wells Fargo",  balance:1900, color:"#f59e0b", note:"New primary bank" },
-  { id:"inc", name:"Income CK",    balance:794,  color:"#3b82f6", note:"Old bank — Progress payroll still here" },
-  { id:"spd", name:"Spending CK",  balance:28,   color:"#6366f1", note:"Old bank — nearly empty" },
-];
-
-const DEFAULT_BUDGETS = [
-  { id:"groc",  name:"Groceries",    budget:550,  icon:"🛒", color:"#3d9970", spent:898  },
-  { id:"dd",    name:"DoorDash",     budget:150,  icon:"🚗", color:"#e74c3c", spent:442  },
-  { id:"dine",  name:"Dining out",   budget:200,  icon:"🍽", color:"#e67e22", spent:503  },
-  { id:"tgt",   name:"Target",       budget:250,  icon:"🎯", color:"#c0392b", spent:887  },
-  { id:"amzn",  name:"Amazon",       budget:200,  icon:"📦", color:"#f39c12", spent:575  },
-  { id:"clth",  name:"Clothing",     budget:75,   icon:"👗", color:"#9b59b6", spent:284  },
-  { id:"gas",   name:"Gas/Fuel",     budget:182,  icon:"⛽", color:"#1abc9c", spent:233  },
-  { id:"med",   name:"Medical",      budget:132,  icon:"💊", color:"#3498db", spent:290  },
-  { id:"clean", name:"Cleaning",     budget:150,  icon:"🧹", color:"#64748b", spent:150  },
-  { id:"ent",   name:"Entertainment",budget:100,  icon:"🎲", color:"#8b5cf6", spent:240  },
-  { id:"home",  name:"Home/Hardware",budget:150,  icon:"🔨", color:"#78716c", spent:591  },
-];
-
-const DEFAULT_BILLS = [
-  { id:1,  name:"Ardent Preschool", cat:"Childcare", day:6,   amt:351,  auto:true,  paid:true,  acct:"inc", note:"Weekly" },
-  { id:2,  name:"AT&T",            cat:"Phone",      day:3,   amt:228,  auto:true,  paid:true,  acct:"inc" },
-  { id:3,  name:"YMCA",            cat:"Gym",        day:2,   amt:317,  auto:true,  paid:true,  acct:"inc" },
-  { id:4,  name:"Alabama Power",   cat:"Electric",   day:8,   amt:237,  auto:true,  paid:true,  acct:"inc" },
-  { id:5,  name:"LendingClub",     cat:"Debt",       day:8,   amt:581,  auto:true,  paid:true,  acct:"inc" },
-  { id:6,  name:"Amex",            cat:"Debt",       day:9,   amt:699,  auto:true,  paid:true,  acct:"inc" },
-  { id:7,  name:"Citi (1st)",      cat:"Debt",       day:7,   amt:88,   auto:true,  paid:true,  acct:"inc" },
-  { id:8,  name:"State Farm",      cat:"Insurance",  day:7,   amt:109,  auto:true,  paid:true,  acct:"inc" },
-  { id:9,  name:"Discover",        cat:"Debt",       day:14,  amt:103,  auto:true,  paid:true,  acct:"inc" },
-  { id:10, name:"Water (BWW)",     cat:"Utilities",  day:14,  amt:57,   auto:true,  paid:true,  acct:"inc" },
-  { id:11, name:"Upgrade Loan",    cat:"Debt",       day:13,  amt:579,  auto:true,  paid:true,  acct:"inc" },
-  { id:12, name:"Hyundai (HMF)",   cat:"Car",        day:13,  amt:665,  auto:true,  paid:true,  acct:"inc", note:"Verify settled" },
-  { id:13, name:"Ally Car",        cat:"Car",        day:12,  amt:555,  auto:true,  paid:true,  acct:"inc" },
-  { id:14, name:"Rocket Money",    cat:"Sub",        day:9,   amt:10,   auto:true,  paid:true,  acct:"inc" },
-  { id:15, name:"Mortgage",        cat:"Housing",    day:15,  amt:3923, auto:true,  paid:false, acct:"inc", note:"⚠ Verify with Newrez" },
-  { id:16, name:"GEICO",           cat:"Insurance",  day:23,  amt:269,  auto:true,  paid:false, acct:"inc" },
-  { id:17, name:"Spectrum",        cat:"Internet",   day:24,  amt:89,   auto:true,  paid:false, acct:"inc" },
-  { id:18, name:"Spire Gas",       cat:"Utilities",  day:22,  amt:91,   auto:true,  paid:false, acct:"inc" },
-  { id:19, name:"Ally Car (reg.)", cat:"Car",        day:25,  amt:530,  auto:true,  paid:false, acct:"inc" },
-  { id:20, name:"Student Loans",   cat:"Debt",       day:25,  amt:187,  auto:true,  paid:false, acct:"inc" },
-  { id:21, name:"Citi (2nd)",      cat:"Debt",       day:27,  amt:88,   auto:true,  paid:false, acct:"inc" },
-  { id:22, name:"Ardent (wk 4)",   cat:"Childcare",  day:27,  amt:351,  auto:true,  paid:false, acct:"wf"  },
-  { id:23, name:"Cleaning service",cat:"Home",       day:null,amt:150,  auto:false, paid:false, acct:"wf",  note:"Venmo ~$150" },
-];
-
-const DEFAULT_INCOME = [
-  { id:"prog", name:"Progress Residential", amt:3398, day:22, acct:"wf", note:"Both pays on WF ✓", received:false },
-  { id:"seu",  name:"Southeastern Univ.",   amt:3011, day:6,  acct:"wf", note:"Both pays on WF ✓", received:false },
-];
-
-const DEBTS = [
-  { name:"Lowe's card",  balance:2000,  rate:26, min:53  },
-  { name:"Discover",     balance:3000,  rate:22, min:103 },
-  { name:"Citi",         balance:4000,  rate:20, min:175 },
-  { name:"Amex",         balance:8000,  rate:24, min:160 },
-  { name:"Upgrade",      balance:14000, rate:18, min:579 },
-  { name:"LendingClub",  balance:10000, rate:14, min:581 },
-  { name:"Student Loans",balance:15000, rate:6,  min:187 },
-  { name:"Ally Car",     balance:15000, rate:6.5,min:530 },
-  { name:"Hyundai",      balance:20000, rate:5,  min:665 },
-];
-
-const KEYS = { accounts:"ff:accounts4", budgets:"ff:budgets4", bills:"ff:bills4", income:"ff:income4" };
-
-async function load(key, fallback) {
-  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : fallback; }
-  catch { return fallback; }
-}
-async function save(key, data) {
-  try { await window.storage.set(key, JSON.stringify(data)); } catch {}
-}
-
-const fmt = (n) => "$" + Math.round(Math.abs(n)).toLocaleString();
-const today = new Date();
-const todayDay = today.getDate();
-const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
-const monthPct = Math.round(todayDay / daysInMonth * 100);
-const MONTH = today.toLocaleString("default",{month:"long"}) + " " + today.getFullYear();
-function daysUntil(day) { if (!day) return null; const d=day-todayDay; return d<0?d+daysInMonth:d; }
-const nextId = (arr) => Math.max(0,...arr.map(x=>+(x.id)||0))+1;
-
-const inputSt = {
-  width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
-  borderRadius:8,color:"#e2e8f0",fontSize:13,padding:"7px 10px",fontFamily:"inherit",boxSizing:"border-box",
-};
-const btnSt = {
-  background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",
-  borderRadius:8,color:"#94a3b8",fontSize:11,padding:"5px 10px",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",
+  },
+  set: async function(k, v) {
+    localStorage.setItem(k, String(v));
+    try {
+      await db.collection(COLL).doc(k).set({value:String(v), updated:new Date().toISOString()});
+      setSyncStatus('✓ Synced', '#34d399');
+      setTimeout(function(){ setSyncStatus(''); }, 2000);
+    } catch(e) { setSyncStatus('● Offline', '#fbbf24'); }
+    return {key:k, value:v};
+  },
+  delete: async function(k) {
+    localStorage.removeItem(k);
+    try { await db.collection(COLL).doc(k).delete(); } catch(e) {}
+    return {key:k, deleted:true};
+  }
 };
 
-function App() {
-  const [tab, setTab]         = useState("cashflow");
-  const [accounts,setAccs]    = useState(null);
-  const [budgets, setBudgets] = useState(null);
-  const [bills,   setBills]   = useState(null);
-  const [income,  setIncome]  = useState(null);
-  const [ready,   setReady]   = useState(false);
-  const [expandD, setExpandD] = useState(null);
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
+}
+</script>
 
-  useEffect(() => {
-    Promise.all([
-      load(KEYS.accounts, DEFAULT_ACCOUNTS),
-      load(KEYS.budgets,  DEFAULT_BUDGETS),
-      load(KEYS.bills,    DEFAULT_BILLS),
-      load(KEYS.income,   DEFAULT_INCOME),
-    ]).then(([a,b,bl,i]) => { setAccs(a);setBudgets(b);setBills(bl);setIncome(i);setReady(true); });
-  }, []);
+<script>
+// ── App ───────────────────────────────────────────────────────────────────────
+(function() {
+  var html = htm.bind(React.createElement);
+  var useState    = React.useState;
+  var useEffect   = React.useEffect;
+  var useCallback = React.useCallback;
 
-  const updA  = useCallback(fn => setAccs(p   => { const n=fn(p); save(KEYS.accounts,n); return n; }),[]);
-  const updB  = useCallback(fn => setBudgets(p => { const n=fn(p); save(KEYS.budgets,n); return n; }),[]);
-  const updBl = useCallback(fn => setBills(p   => { const n=fn(p); save(KEYS.bills,n);   return n; }),[]);
-  const updI  = useCallback(fn => setIncome(p  => { const n=fn(p); save(KEYS.income,n);  return n; }),[]);
+  // ── Defaults ─────────────────────────────────────────────────────────────────
+  var DA = [
+    {id:"wf",  name:"Wells Fargo", balance:1034, color:"#f59e0b", note:"Primary bank — both pays here"},
+    {id:"inc", name:"Income CK",   balance:822,  color:"#3b82f6", note:"Old bank — switching autopays"},
+  ];
+  var DB = [
+    {id:"groc", name:"Groceries",    budget:550, icon:"🛒", color:"#3d9970", spent:898},
+    {id:"dd",   name:"DoorDash",     budget:150, icon:"🚗", color:"#e74c3c", spent:442},
+    {id:"dine", name:"Dining out",   budget:200, icon:"🍽", color:"#e67e22", spent:503},
+    {id:"tgt",  name:"Target",       budget:250, icon:"🎯", color:"#c0392b", spent:887},
+    {id:"amzn", name:"Amazon",       budget:200, icon:"📦", color:"#f39c12", spent:575},
+    {id:"clth", name:"Clothing",     budget:75,  icon:"👗", color:"#9b59b6", spent:284},
+    {id:"gas",  name:"Gas/Fuel",     budget:182, icon:"⛽", color:"#1abc9c", spent:233},
+    {id:"med",  name:"Medical",      budget:132, icon:"💊", color:"#3498db", spent:290},
+    {id:"cln",  name:"Cleaning",     budget:150, icon:"🧹", color:"#64748b", spent:150},
+    {id:"ent",  name:"Entertainment",budget:100, icon:"🎲", color:"#8b5cf6", spent:240},
+    {id:"hom",  name:"Home/Hardware",budget:150, icon:"🔨", color:"#78716c", spent:591},
+  ];
+  var DBL = [
+    {id:1,  name:"Ardent Preschool", cat:"Childcare", day:6,   amt:351,  auto:true,  paid:true,  note:"Weekly"},
+    {id:2,  name:"AT&T",            cat:"Phone",      day:3,   amt:228,  auto:true,  paid:true},
+    {id:3,  name:"YMCA",            cat:"Gym",        day:2,   amt:317,  auto:true,  paid:true},
+    {id:4,  name:"Alabama Power",   cat:"Electric",   day:8,   amt:237,  auto:true,  paid:true},
+    {id:5,  name:"LendingClub",     cat:"Debt",       day:8,   amt:581,  auto:true,  paid:true},
+    {id:6,  name:"Amex",            cat:"Debt",       day:9,   amt:699,  auto:true,  paid:true},
+    {id:7,  name:"Citi (1st)",      cat:"Debt",       day:7,   amt:88,   auto:true,  paid:true},
+    {id:8,  name:"State Farm",      cat:"Insurance",  day:7,   amt:109,  auto:true,  paid:true},
+    {id:9,  name:"Discover",        cat:"Debt",       day:14,  amt:103,  auto:true,  paid:true},
+    {id:10, name:"Water (BWW)",     cat:"Utilities",  day:14,  amt:57,   auto:true,  paid:true},
+    {id:11, name:"Upgrade Loan",    cat:"Debt",       day:13,  amt:579,  auto:true,  paid:true},
+    {id:12, name:"Hyundai (HMF)",   cat:"Car",        day:13,  amt:665,  auto:true,  paid:true,  note:"Verify settled"},
+    {id:13, name:"Ally Car",        cat:"Car",        day:12,  amt:555,  auto:true,  paid:true},
+    {id:14, name:"Rocket Money",    cat:"Sub",        day:9,   amt:10,   auto:true,  paid:true},
+    {id:15, name:"Mortgage",        cat:"Housing",    day:15,  amt:3923, auto:true,  paid:true,  note:"Confirmed Apr 23 ✓"},
+    {id:16, name:"GEICO",           cat:"Insurance",  day:23,  amt:269,  auto:true,  paid:false},
+    {id:17, name:"Spectrum",        cat:"Internet",   day:24,  amt:89,   auto:true,  paid:false},
+    {id:18, name:"Spire Gas",       cat:"Utilities",  day:22,  amt:91,   auto:true,  paid:false},
+    {id:19, name:"Ally Car (reg.)", cat:"Car",        day:25,  amt:530,  auto:true,  paid:false},
+    {id:20, name:"Student Loans",   cat:"Debt",       day:25,  amt:187,  auto:true,  paid:false},
+    {id:21, name:"Citi (2nd)",      cat:"Debt",       day:27,  amt:88,   auto:true,  paid:false},
+    {id:22, name:"Ardent (wk 4)",   cat:"Childcare",  day:27,  amt:351,  auto:true,  paid:false},
+    {id:23, name:"Cleaning",        cat:"Home",       day:null,amt:150,  auto:false, paid:false, note:"Venmo ~$150"},
+  ];
+  var DI = [
+    {id:"prog", name:"Progress Residential", amt:3398, day:22, note:"Both pays on WF ✓", received:true},
+    {id:"seu",  name:"Southeastern Univ.",   amt:3011, day:6,  note:"Both pays on WF ✓", received:true},
+  ];
+  var DEBTS = [
+    {name:"Lowe's card",  balance:2000,  rate:26, min:53},
+    {name:"Discover",     balance:3000,  rate:22, min:103},
+    {name:"Citi",         balance:4000,  rate:20, min:175},
+    {name:"Amex",         balance:8000,  rate:24, min:160},
+    {name:"Upgrade",      balance:14000, rate:18, min:579},
+    {name:"LendingClub",  balance:10000, rate:14, min:581},
+    {name:"Student Loans",balance:15000, rate:6,  min:187},
+    {name:"Ally Car",     balance:15000, rate:6.5,min:530},
+    {name:"Hyundai",      balance:20000, rate:5,  min:665},
+  ];
+  var KEYS = {a:"ff:accounts4", b:"ff:budgets4", bl:"ff:bills4", i:"ff:income4"};
 
-  if (!ready) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",
-      minHeight:"100vh",background:"#080d1a",color:"#475569",fontSize:13,flexDirection:"column",gap:8}}>
-      <div style={{fontSize:24}}>◎</div>
-      <div>Loading your finances...</div>
-    </div>
-  );
+  async function ld(k, fb) {
+    try { var r=await window.storage.get(k); return r?JSON.parse(r.value):fb; } catch(e){return fb;}
+  }
+  async function sv(k, d) { try{await window.storage.set(k,JSON.stringify(d));}catch(e){} }
 
-  const totalBal  = accounts.reduce((s,a)=>s+a.balance,0);
+  var fmt = function(n){ return "$"+Math.round(Math.abs(n)).toLocaleString(); };
+  var today = new Date();
+  var D = today.getDate();
+  var DIM = new Date(today.getFullYear(),today.getMonth()+1,0).getDate();
+  var MP = Math.round(D/DIM*100);
+  var MON = today.toLocaleString("default",{month:"long"})+" "+today.getFullYear();
+  function du(day){ if(!day)return null; var d=day-D; return d<0?d+DIM:d; }
+  function nid(arr){ return Math.max(0,...arr.map(function(x){return +(x.id)||0;}))+1; }
 
-  const handleExport = () => {
-    const data = {
-      exported: new Date().toLocaleString(),
-      accounts,
-      budgets,
-      bills,
-      income,
+  var iSt = {width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
+    borderRadius:8,color:"#e2e8f0",fontSize:13,padding:"7px 10px",fontFamily:"inherit",boxSizing:"border-box"};
+  var bSt = {background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",
+    borderRadius:8,color:"#94a3b8",fontSize:11,padding:"5px 10px",cursor:"pointer",fontFamily:"inherit"};
+
+  function Crd({label,value,color,sub}) {
+    return html`<div style=${{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:11,padding:"11px 13px"}}>
+      <div style=${{fontSize:10,color:"#475569",marginBottom:3}}>${label}</div>
+      <div style=${{fontSize:19,fontWeight:700,color}}>${value}</div>
+      <div style=${{fontSize:10,color:"#334155",marginTop:2}}>${sub}</div>
+    </div>`;
+  }
+  function Hdr({label,color}) {
+    return html`<div style=${{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",
+      color:color||"#3b82f6",marginBottom:7,marginTop:8}}>${label}</div>`;
+  }
+  function Alrt({color,msg}) {
+    var c=color==="red"?{bg:"rgba(239,68,68,0.08)",bd:"rgba(239,68,68,0.2)",tx:"#fca5a5"}
+      :color==="amber"?{bg:"rgba(251,191,36,0.08)",bd:"rgba(251,191,36,0.2)",tx:"#fde68a"}
+      :{bg:"rgba(59,130,246,0.07)",bd:"rgba(59,130,246,0.18)",tx:"#93c5fd"};
+    return html`<div style=${{background:c.bg,border:"1px solid "+c.bd,borderRadius:10,
+      padding:"9px 13px",marginBottom:10,fontSize:12,color:c.tx}}>${msg}</div>`;
+  }
+
+  // ── Main App ──────────────────────────────────────────────────────────────────
+  function App() {
+    var [tab,setTab]       = useState("cashflow");
+    var [accs,setAccs]     = useState(null);
+    var [buds,setBuds]     = useState(null);
+    var [bills,setBills]   = useState(null);
+    var [inc,setInc]       = useState(null);
+    var [ready,setReady]   = useState(false);
+    var [expD,setExpD]     = useState(null);
+    var [showExp,setShowExp] = useState(false);
+
+    useEffect(function(){
+      Promise.all([ld(KEYS.a,DA),ld(KEYS.b,DB),ld(KEYS.bl,DBL),ld(KEYS.i,DI)])
+        .then(function(r){ setAccs(r[0]);setBuds(r[1]);setBills(r[2]);setInc(r[3]);setReady(true); });
+    },[]);
+
+    var uA  = useCallback(function(fn){ setAccs(function(p){  var n=fn(p);sv(KEYS.a,n); return n;}); },[]);
+    var uB  = useCallback(function(fn){ setBuds(function(p){  var n=fn(p);sv(KEYS.b,n); return n;}); },[]);
+    var uBl = useCallback(function(fn){ setBills(function(p){ var n=fn(p);sv(KEYS.bl,n);return n;}); },[]);
+    var uI  = useCallback(function(fn){ setInc(function(p){   var n=fn(p);sv(KEYS.i,n); return n;}); },[]);
+
+    if (!ready) return html`<div style=${{display:"flex",alignItems:"center",justifyContent:"center",
+      minHeight:"100vh",background:"#080d1a",color:"#64748b",fontFamily:"sans-serif",
+      flexDirection:"column",gap:10}}>
+      <div style=${{fontSize:36}}>◎</div>
+      <div style=${{fontSize:14}}>Loading...</div>
+    </div>`;
+
+    var total = accs.reduce(function(s,a){return s+a.balance;},0);
+    var pend  = bills.filter(function(b){return !b.paid;}).reduce(function(s,b){return s+b.amt;},0);
+    var ipend = inc.filter(function(p){return !p.received;}).reduce(function(s,p){return s+p.amt;},0);
+    var proj  = total+ipend-pend;
+
+    var doExport = function(){
+      var txt = JSON.stringify({exported:new Date().toLocaleString(),accounts:accs,budgets:buds,bills:bills,income:inc},null,2);
+      if (navigator.clipboard&&navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(function(){alert("✓ Copied! Paste into Claude.");}).catch(function(){setShowExp(txt);});
+      } else { setShowExp(txt); }
     };
-    const text = JSON.stringify(data, null, 2);
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        alert("✓ Data copied to clipboard!\n\nPaste it into your Claude conversation so it can read your changes.");
-      }).catch(() => {
-        setShowExport(text);
-      });
-    } else {
-      setShowExport(text);
-    }
-  };
-  const pendTotal = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.amt,0);
-  const incPend   = income.filter(p=>!p.received).reduce((s,p)=>s+p.amt,0);
-  const projected = totalBal + incPend - pendTotal;
 
-  return (
-    <div style={{maxWidth:420,margin:"0 auto",minHeight:"100vh",background:"#080d1a",
+    return html`<div style=${{maxWidth:420,margin:"0 auto",minHeight:"100vh",background:"#080d1a",
       color:"#e2e8f0",fontFamily:"'DM Sans','Segoe UI',sans-serif",paddingBottom:80}}>
 
-      {/* ── HEADER ── */}
-      <Header accounts={accounts} total={totalBal} updA={updA}/>
-
-      <div style={{padding:"14px 14px 0"}}>
-        {tab==="cashflow" && <CashFlow bills={bills} income={income} pendTotal={pendTotal} incPend={incPend} projected={projected} updBl={updBl}/>}
-        {tab==="budget"   && <Budget budgets={budgets} updB={updB}/>}
-        {tab==="debt"     && <Debt expandD={expandD} setExpandD={setExpandD}/>}
-        {tab==="bills"    && <BillsTab bills={bills} income={income} updBl={updBl} updI={updI}/>}
+      <!-- Header -->
+      <div style=${{background:"linear-gradient(160deg,#0f172a 0%,#1a2744 100%)",
+        padding:"18px 18px 14px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+        <div style=${{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style=${{fontSize:11,color:"#475569",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>
+              ${MON} · Day ${D}
+            </div>
+            <div style=${{display:"flex",alignItems:"center",gap:8}}>
+              <div style=${{fontSize:12,color:"#64748b"}}>Family Finance</div>
+              <div id="sync-status" style=${{fontSize:10,color:"#34d399"}}></div>
+            </div>
+          </div>
+          <div style=${{textAlign:"right"}}>
+            <div style=${{fontSize:10,color:"#475569",marginBottom:2}}>Total balance</div>
+            <div style=${{fontSize:22,fontWeight:700,
+              color:total<500?"#f87171":total<2000?"#fbbf24":"#34d399"}}>${fmt(total)}</div>
+          </div>
+        </div>
+        <div style=${{marginTop:10}}>
+          <div style=${{display:"flex",justifyContent:"space-between",fontSize:10,color:"#475569",marginBottom:3}}>
+            <span>${MP}% through ${today.toLocaleString("default",{month:"long"})}</span>
+            <span>${DIM-D} days left</span>
+          </div>
+          <div style=${{height:3,background:"rgba(255,255,255,0.07)",borderRadius:2}}>
+            <div style=${{height:"100%",width:MP+"%",background:"#3b82f6",borderRadius:2}}/>
+          </div>
+        </div>
+        <!-- Account chips -->
+        <div style=${{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+          ${accs.map(function(a){
+            return html`<div key=${a.id} style=${{display:"inline-flex",alignItems:"center",gap:5,
+              background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",
+              borderRadius:20,padding:"3px 10px",fontSize:11}}>
+              <span style=${{width:6,height:6,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
+              <span style=${{color:"#94a3b8"}}>${a.name.split(" ")[0]}</span>
+              <span style=${{color:"#e2e8f0",fontWeight:600}}>${fmt(a.balance)}</span>
+            </div>`;
+          })}
+        </div>
       </div>
 
-      {/* ── NAV ── */}
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",
+      <!-- Content -->
+      <div style=${{padding:"14px 14px 0"}}>
+        ${tab==="cashflow" && html`<${CashFlow} bills=${bills} inc=${inc} pend=${pend} ipend=${ipend} proj=${proj} uBl=${uBl} uI=${uI}/>`}
+        ${tab==="budget"   && html`<${Budget} buds=${buds} uB=${uB}/>`}
+        ${tab==="debt"     && html`<${DebtTab} expD=${expD} setExpD=${setExpD}/>`}
+        ${tab==="bills"    && html`<${BillsTab} bills=${bills} inc=${inc} uBl=${uBl} uI=${uI}/>`}
+      </div>
+
+      <!-- Bottom nav -->
+      <div style=${{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",
         width:"100%",maxWidth:420,background:"rgba(8,13,26,0.97)",backdropFilter:"blur(12px)",
         borderTop:"1px solid rgba(255,255,255,0.07)",
         display:"flex",justifyContent:"space-around",padding:"8px 0 14px",zIndex:100}}>
-        {[{id:"cashflow",l:"Cash Flow",ic:"◎"},{id:"budget",l:"Budget",ic:"◈"},
-          {id:"debt",l:"Debt",ic:"◉"},{id:"bills",l:"Bills",ic:"◷"}].map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{
-            background:"none",border:"none",cursor:"pointer",
-            display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 14px",
-            color:tab===t.id?"#3b82f6":"#334155",transition:"color 0.2s"}}>
-            <span style={{fontSize:18}}>{t.ic}</span>
-            <span style={{fontSize:10,fontWeight:tab===t.id?600:400}}>{t.l}</span>
-          </button>
-        ))}
-        <button onClick={handleExport} style={{
-          background:"none",border:"none",cursor:"pointer",
-          display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 14px",
-          color:"#334155",transition:"color 0.2s"}}>
-          <span style={{fontSize:18}}>⬆</span>
-          <span style={{fontSize:10}}>Export</span>
+        ${[{id:"cashflow",l:"Cash Flow",ic:"◎"},{id:"budget",l:"Budget",ic:"◈"},
+           {id:"debt",l:"Debt",ic:"◉"},{id:"bills",l:"Bills",ic:"◷"}].map(function(t){
+          return html`<button key=${t.id} onClick=${function(){setTab(t.id);}} style=${{
+            background:"none",border:"none",cursor:"pointer",flexDirection:"column",
+            display:"flex",alignItems:"center",gap:2,padding:"0 12px",
+            color:tab===t.id?"#3b82f6":"#334155"}}>
+            <span style=${{fontSize:18}}>${t.ic}</span>
+            <span style=${{fontSize:10,fontWeight:tab===t.id?600:400}}>${t.l}</span>
+          </button>`;
+        })}
+        <button onClick=${doExport} style=${{background:"none",border:"none",cursor:"pointer",
+          display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 12px",color:"#334155"}}>
+          <span style=${{fontSize:18}}>⬆</span>
+          <span style=${{fontSize:10}}>Export</span>
         </button>
       </div>
-    </div>
 
-    {/* Export modal */}
-    {showExport && (
-      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",
-        zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-        <div style={{background:"#1e2d40",borderRadius:16,padding:20,width:"100%",maxWidth:380,maxHeight:"80vh",display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{fontSize:15,fontWeight:700,color:"#e2e8f0"}}>Export Your Data</div>
-          <div style={{fontSize:12,color:"#94a3b8"}}>Copy this and paste it into Claude so it can read all your changes.</div>
-          <textarea readOnly value={showExport}
-            style={{flex:1,minHeight:200,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",
-              borderRadius:8,color:"#e2e8f0",fontSize:10,padding:10,fontFamily:"monospace",resize:"none"}}
-            onFocus={e=>e.target.select()}/>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>{
-              const el = document.querySelector("textarea");
-              el.select();
-              document.execCommand("copy");
+      <!-- Export modal -->
+      ${showExp && html`<div style=${{position:"fixed",top:0,left:0,right:0,bottom:0,
+        background:"rgba(0,0,0,0.85)",zIndex:999,display:"flex",alignItems:"center",
+        justifyContent:"center",padding:20}}>
+        <div style=${{background:"#1e2d40",borderRadius:16,padding:20,width:"100%",maxWidth:380,
+          maxHeight:"80vh",display:"flex",flexDirection:"column",gap:12}}>
+          <div style=${{fontSize:15,fontWeight:700}}>Export Data</div>
+          <div style=${{fontSize:12,color:"#94a3b8"}}>Copy and paste into Claude.</div>
+          <textarea readOnly value=${showExp} onFocus=${function(e){e.target.select();}}
+            style=${{flex:1,minHeight:180,background:"rgba(255,255,255,0.06)",
+              border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,color:"#e2e8f0",
+              fontSize:10,padding:10,fontFamily:"monospace",resize:"none"}}/>
+          <div style=${{display:"flex",gap:8}}>
+            <button onClick=${function(){
+              var el=document.querySelector("textarea");el.select();document.execCommand("copy");
               alert("✓ Copied!");
-            }} style={{flex:1,padding:"10px",borderRadius:10,border:"none",
-              background:"rgba(52,211,153,0.2)",color:"#34d399",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
-              Copy All
-            </button>
-            <button onClick={()=>setShowExport(false)}
-              style={{padding:"10px 16px",borderRadius:10,border:"1px solid rgba(255,255,255,0.1)",
+            }} style=${{flex:1,padding:"10px",borderRadius:10,border:"none",
+              background:"rgba(52,211,153,0.2)",color:"#34d399",fontSize:13,
+              cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Copy All</button>
+            <button onClick=${function(){setShowExp(false);}}
+              style=${{padding:"10px 16px",borderRadius:10,border:"1px solid rgba(255,255,255,0.1)",
                 background:"transparent",color:"#94a3b8",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
-              Close
-            </button>
+              Close</button>
           </div>
         </div>
+      </div>`}
+    </div>`;
+  }
+
+  // ── Cash Flow ─────────────────────────────────────────────────────────────────
+  function CashFlow({bills,inc,pend,ipend,proj,uBl,uI}) {
+    var pending  = bills.filter(function(b){return !b.paid;});
+    var paid     = bills.filter(function(b){return b.paid;});
+    var thisWeek = pending.filter(function(b){return b.day&&du(b.day)>=0&&du(b.day)<=6;})
+                         .sort(function(a,b){return du(a.day)-du(b.day);});
+    var later    = pending.filter(function(b){return b.day&&du(b.day)>6;})
+                         .sort(function(a,b){return du(a.day)-du(b.day);});
+    var variable = pending.filter(function(b){return !b.day;});
+    var tog = function(id){ uBl(function(p){return p.map(function(b){return b.id===id?Object.assign({},b,{paid:!b.paid}):b;});}); };
+    var togI = function(id){ uI(function(p){return p.map(function(x){return x.id===id?Object.assign({},x,{received:!x.received}):x;});}); };
+
+    return html`<div>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <${Crd} label="Income pending" value=${fmt(ipend)} color="#34d399" sub="${inc.filter(function(p){return !p.received;}).length} paychecks"/>
+        <${Crd} label="Bills pending" value=${fmt(pend)} color="#f87171" sub="${pending.length} remaining"/>
       </div>
-    )}
-  );
-}
-
-/* ── HEADER ────────────────────────────────────────────────────────────────── */
-function Header({accounts,total,updA}) {
-  const [open,setOpen]=useState(false);
-  const [eid,setEid]=useState(null);
-  return (
-    <div style={{background:"linear-gradient(160deg,#0f172a 0%,#1a2744 100%)",
-      padding:"18px 18px 14px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-        <div>
-          <div style={{fontSize:11,color:"#475569",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>{MONTH} · Day {todayDay}</div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{fontSize:12,color:"#64748b"}}>Family Finance</div>
-            <div id="sync-status" style={{fontSize:10,color:"#34d399"}}></div>
-          </div>
-        </div>
-        <div style={{textAlign:"right"}}>
-          <div style={{fontSize:10,color:"#475569",marginBottom:2}}>Total balance</div>
-          <div style={{fontSize:22,fontWeight:700,color:total<500?"#f87171":total<2000?"#fbbf24":"#34d399"}}>{fmt(total)}</div>
-        </div>
-      </div>
-
-      <div style={{marginTop:10,cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {accounts.map(a=>(
-            <div key={a.id} style={{display:"inline-flex",alignItems:"center",gap:5,
-              background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",
-              borderRadius:20,padding:"3px 10px",fontSize:11}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
-              <span style={{color:"#94a3b8"}}>{a.name.split(" ")[0]}</span>
-              <span style={{color:"#e2e8f0",fontWeight:600}}>{fmt(a.balance)}</span>
-            </div>
-          ))}
-          <span style={{fontSize:10,color:"#334155",alignSelf:"center"}}>{open?"▲":"▼"}</span>
-        </div>
-
-        {open && (
-          <div style={{marginTop:8,background:"rgba(255,255,255,0.04)",
-            border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"10px 12px"}}>
-            {accounts.map(a=>(
-              <div key={a.id} style={{marginBottom:8}}>
-                {eid===a.id ? (
-                  <AcctEdit a={a}
-                    onSave={u=>{updA(p=>p.map(x=>x.id===a.id?u:x));setEid(null);}}
-                    onCancel={()=>setEid(null)}/>
-                ) : (
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{width:8,height:8,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
-                        <span style={{fontSize:12,fontWeight:500}}>{a.name}</span>
-                      </div>
-                      {a.note&&<div style={{fontSize:11,color:"#475569",paddingLeft:14,marginTop:1}}>{a.note}</div>}
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:14,fontWeight:700,color:a.color}}>{fmt(a.balance)}</span>
-                      <button onClick={e=>{e.stopPropagation();setEid(a.id);}} style={btnSt}>Edit</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-            <button onClick={e=>{e.stopPropagation();updA(p=>[...p,{id:"a"+Date.now(),name:"New Account",balance:0,color:"#64748b",note:""}]);}}
-              style={{...btnSt,width:"100%",marginTop:2}}>+ Add account</button>
-          </div>
-        )}
-      </div>
-
-      <div style={{marginTop:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#475569",marginBottom:3}}>
-          <span>{monthPct}% through {today.toLocaleString("default",{month:"long"})}</span>
-          <span>{daysInMonth-todayDay} days left</span>
-        </div>
-        <div style={{height:3,background:"rgba(255,255,255,0.07)",borderRadius:2}}>
-          <div style={{height:"100%",width:`${monthPct}%`,background:"#3b82f6",borderRadius:2}}/>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AcctEdit({a,onSave,onCancel}) {
-  const [name,setName]=useState(a.name);
-  const [bal,setBal]=useState(String(a.balance));
-  const [note,setNote]=useState(a.note||"");
-  return (
-    <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:10,padding:"10px 12px"}}>
-      <input value={name} onChange={e=>setName(e.target.value)} placeholder="Name" style={{...inputSt,marginBottom:6}}/>
-      <input value={bal}  onChange={e=>setBal(e.target.value)}  placeholder="Balance" type="number" style={{...inputSt,marginBottom:6}}/>
-      <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note" style={{...inputSt,marginBottom:8}}/>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>onSave({...a,name,balance:parseFloat(bal)||0,note})}
-          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
-        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
-      </div>
-    </div>
-  );
-}
-
-/* ── CASH FLOW ─────────────────────────────────────────────────────────────── */
-function CashFlow({bills,income,pendTotal,incPend,projected,updBl}) {
-  const pending  = bills.filter(b=>!b.paid);
-  const paid     = bills.filter(b=>b.paid);
-  const thisWeek = pending.filter(b=>b.day&&daysUntil(b.day)>=0&&daysUntil(b.day)<=6).sort((a,b)=>daysUntil(a.day)-daysUntil(b.day));
-  const later    = pending.filter(b=>b.day&&daysUntil(b.day)>6).sort((a,b)=>daysUntil(a.day)-daysUntil(b.day));
-  const variable = pending.filter(b=>!b.day);
-  const tog = id => updBl(p=>p.map(b=>b.id===id?{...b,paid:!b.paid}:b));
-
-  return (
-    <div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        <Crd label="Income pending" value={fmt(incPend)} color="#34d399" sub={`${income.length} paychecks`}/>
-        <Crd label="Bills pending" value={fmt(pendTotal)} color="#f87171" sub={`${pending.length} items`}/>
-      </div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-        background:projected<500?"rgba(239,68,68,0.09)":"rgba(52,211,153,0.07)",
-        border:`1px solid ${projected<500?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.15)"}`,
+      <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",
+        background:proj<500?"rgba(239,68,68,0.09)":"rgba(52,211,153,0.07)",
+        border:"1px solid "+(proj<500?"rgba(239,68,68,0.2)":"rgba(52,211,153,0.15)"),
         borderRadius:10,padding:"10px 14px",marginBottom:10}}>
-        <span style={{fontSize:12,color:"#94a3b8"}}>Projected month-end</span>
-        <span style={{fontSize:18,fontWeight:700,color:projected<0?"#f87171":projected<500?"#fbbf24":"#34d399"}}>{fmt(projected)}</span>
+        <span style=${{fontSize:12,color:"#94a3b8"}}>Projected month-end</span>
+        <span style=${{fontSize:18,fontWeight:700,
+          color:proj<0?"#f87171":proj<500?"#fbbf24":"#34d399"}}>${fmt(proj)}</span>
       </div>
 
-      {bills.find(b=>b.id===15&&!b.paid)&&(
-        <Alrt color="red" msg="⚠ Mortgage not confirmed paid — verify with Newrez"/>
-      )}
-
-      <Hdr label="Paychecks"/>
-      {income.map(p=>(
-        <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+      <${Hdr} label="Paychecks"/>
+      ${inc.map(function(p){
+        return html`<div key=${p.id} style=${{display:"flex",justifyContent:"space-between",alignItems:"center",
           padding:"10px 13px",marginBottom:6,
-          background:p.received?"rgba(52,211,153,0.04)":"rgba(52,211,153,0.07)",
+          background:p.received?"rgba(52,211,153,0.03)":"rgba(52,211,153,0.07)",
           border:"1px solid rgba(52,211,153,0.15)",borderRadius:10,
           opacity:p.received?0.6:1}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:13,fontWeight:500,color:p.received?"#475569":"#a7f3d0",
-              textDecoration:p.received?"line-through":"none"}}>{p.name}</div>
-            <div style={{fontSize:11,color:"#475569",marginTop:2}}>Day {p.day}
-              {p.received&&<span style={{color:"#34d399",marginLeft:5}}>· Received ✓</span>}
-              {!p.received&&p.note&&<span style={{color:"#f59e0b",marginLeft:5}}>· {p.note}</span>}
+          <div style=${{flex:1}}>
+            <div style=${{fontSize:13,fontWeight:500,color:p.received?"#475569":"#a7f3d0",
+              textDecoration:p.received?"line-through":"none"}}>${p.name}</div>
+            <div style=${{fontSize:11,color:"#475569",marginTop:2}}>
+              Day ${p.day}
+              ${p.received
+                ? html`<span style=${{color:"#34d399",marginLeft:5}}>· Received ✓</span>`
+                : html`<span style=${{color:"#f59e0b",marginLeft:5}}>· ${p.note}</span>`}
             </div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-            <span style={{fontSize:15,fontWeight:700,color:p.received?"#475569":"#34d399"}}>{fmt(p.amt)}</span>
-            <button onClick={()=>updI(prev=>prev.map(x=>x.id===p.id?{...x,received:!x.received}:x))}
-              style={{width:28,height:28,borderRadius:"50%",border:"1.5px solid",cursor:"pointer",
-                background:"transparent",fontSize:13,flexShrink:0,
-                borderColor:p.received?"rgba(255,255,255,0.1)":"rgba(52,211,153,0.4)",
-                color:p.received?"#334155":"#34d399"}}>
-              {p.received?"↩":"✓"}
-            </button>
+          <div style=${{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <span style=${{fontSize:15,fontWeight:700,color:p.received?"#475569":"#34d399"}}>${fmt(p.amt)}</span>
+            <button onClick=${function(){togI(p.id);}} style=${{width:28,height:28,borderRadius:"50%",
+              border:"1.5px solid "+(p.received?"rgba(255,255,255,0.1)":"rgba(52,211,153,0.4)"),
+              cursor:"pointer",background:"transparent",fontSize:13,
+              color:p.received?"#334155":"#34d399"}}>${p.received?"↩":"✓"}</button>
           </div>
-        </div>
-      ))}
+        </div>`;
+      })}
 
-      {thisWeek.length>0&&<><Hdr label="Due this week" color="#f87171"/>{thisWeek.map(b=><BC key={b.id} b={b} onTog={()=>tog(b.id)}/>)}</>}
-      {later.length>0&&<><Hdr label="Later this month"/>{later.map(b=><BC key={b.id} b={b} onTog={()=>tog(b.id)}/>)}</>}
-      {variable.length>0&&<><Hdr label="No fixed date"/>{variable.map(b=><BC key={b.id} b={b} onTog={()=>tog(b.id)}/>)}</>}
+      ${thisWeek.length>0 && html`<${Hdr} label="Due this week" color="#f87171"/>`}
+      ${thisWeek.map(function(b){ return html`<${BRow} key=${b.id} b=${b} onTog=${function(){tog(b.id);}}/>`; })}
+      ${later.length>0 && html`<${Hdr} label="Later this month"/>`}
+      ${later.map(function(b){ return html`<${BRow} key=${b.id} b=${b} onTog=${function(){tog(b.id);}}/>`; })}
+      ${variable.length>0 && html`<${Hdr} label="No fixed date"/>`}
+      ${variable.map(function(b){ return html`<${BRow} key=${b.id} b=${b} onTog=${function(){tog(b.id);}}/>`; })}
 
-      {paid.length>0&&(
-        <><Hdr label={`Paid (${paid.length})`} color="#334155"/>
-        {paid.map(b=>(
-          <div key={b.id} onClick={()=>tog(b.id)}
-            style={{display:"flex",justifyContent:"space-between",padding:"6px 12px",marginBottom:3,opacity:0.4,cursor:"pointer"}}>
-            <span style={{fontSize:12,color:"#475569",textDecoration:"line-through"}}>{b.name}</span>
-            <span style={{fontSize:12,color:"#334155"}}>✓ {fmt(b.amt)}</span>
-          </div>
-        ))}</>
-      )}
-    </div>
-  );
-}
+      ${paid.length>0 && html`<${Hdr} label="Paid (${paid.length})" color="#334155"/>`}
+      ${paid.map(function(b){
+        return html`<div key=${b.id} onClick=${function(){tog(b.id);}}
+          style=${{display:"flex",justifyContent:"space-between",padding:"6px 12px",
+            marginBottom:3,opacity:0.4,cursor:"pointer"}}>
+          <span style=${{fontSize:12,color:"#475569",textDecoration:"line-through"}}>${b.name}</span>
+          <span style=${{fontSize:12,color:"#334155"}}>✓ ${fmt(b.amt)}</span>
+        </div>`;
+      })}
+    </div>`;
+  }
 
-function BC({b,onTog}) {
-  const d=b.day?daysUntil(b.day):null;
-  const urg=d!==null&&d<=3;
-  return (
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+  function BRow({b, onTog}) {
+    var d = b.day ? du(b.day) : null;
+    var urg = d!==null && d<=3;
+    return html`<div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",
       padding:"10px 13px",marginBottom:6,
       background:urg?"rgba(239,68,68,0.08)":"rgba(255,255,255,0.03)",
-      border:`1px solid ${urg?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.07)"}`,borderRadius:10}}>
-      <div style={{flex:1}}>
-        <div style={{fontSize:13,fontWeight:500}}>{b.name}</div>
-        <div style={{fontSize:11,color:"#475569",marginTop:2}}>
-          {b.cat}{b.auto&&<span style={{color:"#34d399",marginLeft:5}}>✓ auto</span>}
-          {b.acct==="wf"&&<span style={{color:"#f59e0b",marginLeft:5}}>· WF</span>}
-          {b.note&&<span style={{color:b.note.includes("⚠")?"#fca5a5":"#fbbf24",marginLeft:5}}>· {b.note}</span>}
+      border:"1px solid "+(urg?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.07)"),borderRadius:10}}>
+      <div style=${{flex:1}}>
+        <div style=${{fontSize:13,fontWeight:500}}>${b.name}</div>
+        <div style=${{fontSize:11,color:"#475569",marginTop:2}}>
+          ${b.cat}
+          ${b.auto && html`<span style=${{color:"#34d399",marginLeft:5}}>✓ auto</span>`}
+          ${b.note && html`<span style=${{color:"#fbbf24",marginLeft:5}}>· ${b.note}</span>`}
         </div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:8}}>
-        <div style={{textAlign:"right"}}>
-          <div style={{fontSize:14,fontWeight:600}}>{fmt(b.amt)}</div>
-          <div style={{fontSize:11,color:urg?"#f87171":"#475569"}}>{!b.day?"variable":d===0?"today":`in ${d}d`}</div>
+      <div style=${{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:8}}>
+        <div style=${{textAlign:"right"}}>
+          <div style=${{fontSize:14,fontWeight:600}}>${fmt(b.amt)}</div>
+          <div style=${{fontSize:11,color:urg?"#f87171":"#475569"}}>
+            ${!b.day?"variable":d===0?"today":"in "+d+"d"}
+          </div>
         </div>
-        <button onClick={onTog} style={{width:28,height:28,borderRadius:"50%",border:"1.5px solid rgba(52,211,153,0.3)",
-          cursor:"pointer",background:"transparent",fontSize:13,color:"#34d399",flexShrink:0}}>✓</button>
+        <button onClick=${onTog} style=${{width:28,height:28,borderRadius:"50%",
+          border:"1.5px solid rgba(52,211,153,0.3)",cursor:"pointer",
+          background:"transparent",fontSize:13,color:"#34d399",flexShrink:0}}>✓</button>
       </div>
-    </div>
-  );
-}
+    </div>`;
+  }
 
-/* ── BUDGET ────────────────────────────────────────────────────────────────── */
-function Budget({budgets,updB}) {
-  const [eid,setEid]=useState(null);
-  const [adding,setAdding]=useState(false);
-  const total  = budgets.reduce((s,c)=>s+c.budget,0);
-  const spent  = budgets.reduce((s,c)=>s+c.spent, 0);
-  const overN  = budgets.filter(c=>c.spent>c.budget).length;
-  const updCat = (id,field,val) => updB(p=>p.map(c=>c.id===id?{...c,[field]:val}:c));
-  const delCat = (id)           => updB(p=>p.filter(c=>c.id!==id));
+  // ── Budget ────────────────────────────────────────────────────────────────────
+  function Budget({buds, uB}) {
+    var [eid,setEid] = useState(null);
+    var [adding,setAdding] = useState(false);
+    var total = buds.reduce(function(s,c){return s+c.budget;},0);
+    var spent = buds.reduce(function(s,c){return s+c.spent;},0);
+    var overN = buds.filter(function(c){return c.spent>c.budget;}).length;
 
-  return (
-    <div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        <Crd label="Monthly budget" value={fmt(total)} color="#64748b" sub="all categories"/>
-        <Crd label={`Spent (${today.toLocaleString("default",{month:"short"})})`} value={fmt(spent)}
-          color={spent>total?"#f87171":"#fbbf24"} sub={`${overN} over budget`}/>
+    return html`<div>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <${Crd} label="Monthly budget" value=${fmt(total)} color="#64748b" sub="all categories"/>
+        <${Crd} label="Spent (${today.toLocaleString("default",{month:"short"})})" value=${fmt(spent)}
+          color=${spent>total?"#f87171":"#fbbf24"} sub="${overN} over budget"/>
       </div>
-      {overN>0&&<Alrt color="red" msg={`${overN} categories over · ${fmt(spent-total)} total overage this month`}/>}
+      ${overN>0 && html`<${Alrt} color="red" msg="${overN} categories over · ${fmt(spent-total)} total overage"/>`}
 
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,marginTop:4}}>
-        <Hdr label="Categories" inline/>
-        <button onClick={()=>setAdding(true)} style={btnSt}>+ Add</button>
+      <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,marginTop:4}}>
+        <div style=${{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",color:"#3b82f6"}}>Categories</div>
+        <button onClick=${function(){setAdding(true);}} style=${bSt}>+ Add</button>
       </div>
 
-      {adding&&<CatEdit onSave={c=>{updB(p=>[...p,{...c,id:"c"+Date.now()}]);setAdding(false);}} onCancel={()=>setAdding(false)}/>}
+      ${adding && html`<${CatEdit}
+        onSave=${function(c){uB(function(p){return [...p,Object.assign({},c,{id:"c"+Date.now()})];});setAdding(false);}}
+        onCancel=${function(){setAdding(false);}}/>`}
 
-      {budgets.map(cat=>{
-        const pct=cat.budget>0?cat.spent/cat.budget:0;
-        const over=cat.spent>cat.budget;
-        return (
-          <div key={cat.id} style={{background:"rgba(255,255,255,0.03)",
-            border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"11px 13px",marginBottom:7}}>
-            {eid===cat.id ? (
-              <CatEdit initial={cat}
-                onSave={u=>{updB(p=>p.map(c=>c.id===cat.id?{...c,...u}:c));setEid(null);}}
-                onCancel={()=>setEid(null)}
-                onDelete={()=>{delCat(cat.id);setEid(null);}}/>
-            ) : (
-              <>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7}}>
-                    <span style={{fontSize:16}}>{cat.icon}</span>
-                    <span style={{fontSize:13,fontWeight:500}}>{cat.name}</span>
+      ${buds.map(function(cat){
+        var pct = cat.budget>0?cat.spent/cat.budget:0;
+        var over = cat.spent>cat.budget;
+        return html`<div key=${cat.id} style=${{background:"rgba(255,255,255,0.03)",
+          border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"11px 13px",marginBottom:7}}>
+          ${eid===cat.id
+            ? html`<${CatEdit}
+                initial=${cat}
+                onSave=${function(u){uB(function(p){return p.map(function(c){return c.id===cat.id?Object.assign({},c,u):c;});});setEid(null);}}
+                onCancel=${function(){setEid(null);}}
+                onDelete=${function(){uB(function(p){return p.filter(function(c){return c.id!==cat.id;});});setEid(null);}}/>`
+            : html`<div>
+                <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                  <div style=${{display:"flex",alignItems:"center",gap:7}}>
+                    <span style=${{fontSize:16}}>${cat.icon}</span>
+                    <span style=${{fontSize:13,fontWeight:500}}>${cat.name}</span>
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <div>
-                      <SpendIn value={cat.spent} over={over} onChange={v=>updCat(cat.id,"spent",v)}/>
-                      <span style={{fontSize:11,color:"#475569",marginLeft:3}}>/ {fmt(cat.budget)}</span>
-                    </div>
-                    <button onClick={()=>setEid(cat.id)} style={btnSt}>···</button>
+                  <div style=${{display:"flex",alignItems:"center",gap:8}}>
+                    <${SpendIn} value=${cat.spent} over=${over}
+                      onChange=${function(v){uB(function(p){return p.map(function(c){return c.id===cat.id?Object.assign({},c,{spent:v}):c;});});}}/>
+                    <span style=${{fontSize:11,color:"#475569"}}>/ ${fmt(cat.budget)}</span>
+                    <button onClick=${function(){setEid(cat.id);}} style=${bSt}>···</button>
                   </div>
                 </div>
-                <div style={{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3}}>
-                  <div style={{height:"100%",borderRadius:3,width:`${Math.min(pct,1)*100}%`,
+                <div style=${{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3}}>
+                  <div style=${{height:"100%",borderRadius:3,width:Math.min(pct,1)*100+"%",
                     background:over?"#ef4444":pct>0.8?"#fbbf24":cat.color}}/>
                 </div>
-                <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10,color:"#334155"}}>
-                  <span style={{color:over?"#f87171":"#334155"}}>{over?`Over ${fmt(cat.spent-cat.budget)}`:`${fmt(cat.budget-cat.spent)} left`}</span>
-                  <span>On-pace: {fmt(Math.round(cat.budget*monthPct/100))}</span>
+                <div style=${{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10,color:"#334155"}}>
+                  <span style=${{color:over?"#f87171":"#334155"}}>
+                    ${over?"Over "+fmt(cat.spent-cat.budget):fmt(cat.budget-cat.spent)+" left"}
+                  </span>
+                  <span>On-pace: ${fmt(Math.round(cat.budget*MP/100))}</span>
                 </div>
-              </>
-            )}
-          </div>
-        );
+              </div>`}
+        </div>`;
       })}
-    </div>
-  );
-}
+    </div>`;
+  }
 
-function SpendIn({value,onChange,over}) {
-  const [ed,setEd]=useState(false);
-  const [v,setV]=useState(String(Math.round(value)));
-  if (ed) return (
-    <input type="number" value={v} autoFocus onChange={e=>setV(e.target.value)}
-      onBlur={()=>{onChange(parseFloat(v)||0);setEd(false);}}
-      onKeyDown={e=>{if(e.key==="Enter"){onChange(parseFloat(v)||0);setEd(false);}}}
-      style={{width:72,background:"rgba(255,255,255,0.08)",border:"1px solid #3b82f6",
-        borderRadius:6,color:over?"#f87171":"#e2e8f0",fontSize:13,padding:"2px 6px",textAlign:"right"}}/>
-  );
-  return (
-    <span onClick={()=>setEd(true)} style={{fontSize:14,fontWeight:700,cursor:"pointer",
-      color:over?"#f87171":"#e2e8f0",borderBottom:"1px dashed rgba(255,255,255,0.15)"}}>
-      {fmt(value)}
-    </span>
-  );
-}
+  function SpendIn({value, onChange, over}) {
+    var [ed,setEd] = useState(false);
+    var [v,setV]   = useState(String(Math.round(value)));
+    if (ed) return html`<input type="number" value=${v} autoFocus
+      onChange=${function(e){setV(e.target.value);}}
+      onBlur=${function(){onChange(parseFloat(v)||0);setEd(false);}}
+      onKeyDown=${function(e){if(e.key==="Enter"){onChange(parseFloat(v)||0);setEd(false);}}}
+      style=${{width:72,background:"rgba(255,255,255,0.08)",border:"1px solid #3b82f6",
+        borderRadius:6,color:over?"#f87171":"#e2e8f0",fontSize:13,padding:"2px 6px",textAlign:"right"}}/>`;
+    return html`<span onClick=${function(){setEd(true);setV(String(Math.round(value)));}}
+      style=${{fontSize:14,fontWeight:700,cursor:"pointer",
+        color:over?"#f87171":"#e2e8f0",borderBottom:"1px dashed rgba(255,255,255,0.15)"}}>
+      ${fmt(value)}</span>`;
+  }
 
-function CatEdit({initial,onSave,onCancel,onDelete}) {
-  const [name,setName]=useState(initial?.name||"");
-  const [bud,setBud]=useState(initial?.budget||"");
-  const [sp,setSp]=useState(initial?.spent||"");
-  const [icon,setIcon]=useState(initial?.icon||"💰");
-  return (
-    <div style={{background:"rgba(59,130,246,0.07)",border:"1px solid rgba(59,130,246,0.18)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
-      <div style={{display:"grid",gridTemplateColumns:"40px 1fr",gap:6,marginBottom:6}}>
-        <input value={icon} onChange={e=>setIcon(e.target.value)} placeholder="Icon" style={{...inputSt,textAlign:"center",fontSize:18,padding:"4px"}}/>
-        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Category name" style={inputSt}/>
+  function CatEdit({initial, onSave, onCancel, onDelete}) {
+    var [name,setName] = useState(initial?initial.name:"");
+    var [bud,setBud]   = useState(initial?String(initial.budget):"");
+    var [sp,setSp]     = useState(initial?String(initial.spent):"");
+    var [icon,setIcon] = useState(initial?initial.icon:"💰");
+    return html`<div style=${{background:"rgba(59,130,246,0.07)",border:"1px solid rgba(59,130,246,0.18)",
+      borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+      <div style=${{display:"grid",gridTemplateColumns:"40px 1fr",gap:6,marginBottom:6}}>
+        <input value=${icon} onChange=${function(e){setIcon(e.target.value);}} placeholder="Icon"
+          style=${{...iSt,textAlign:"center",fontSize:18,padding:"4px"}}/>
+        <input value=${name} onChange=${function(e){setName(e.target.value);}} placeholder="Category name" style=${iSt}/>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-        <input value={bud} onChange={e=>setBud(e.target.value)} placeholder="Budget $" type="number" style={inputSt}/>
-        <input value={sp}  onChange={e=>setSp(e.target.value)}  placeholder="Spent $"  type="number" style={inputSt}/>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+        <input value=${bud} onChange=${function(e){setBud(e.target.value);}} placeholder="Budget $" type="number" style=${iSt}/>
+        <input value=${sp}  onChange=${function(e){setSp(e.target.value);}}  placeholder="Spent $"  type="number" style=${iSt}/>
       </div>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>onSave({name,budget:parseFloat(bud)||0,spent:parseFloat(sp)||0,icon,color:"#64748b"})}
-          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
-        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
-        {onDelete&&<button onClick={onDelete} style={{...btnSt,background:"rgba(239,68,68,0.12)",color:"#f87171"}}>Delete</button>}
+      <div style=${{display:"flex",gap:6}}>
+        <button onClick=${function(){onSave({name,budget:parseFloat(bud)||0,spent:parseFloat(sp)||0,icon,color:"#64748b"});}}
+          style=${{...bSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
+        <button onClick=${onCancel} style=${{...bSt,flex:1}}>Cancel</button>
+        ${onDelete && html`<button onClick=${onDelete}
+          style=${{...bSt,background:"rgba(239,68,68,0.12)",color:"#f87171"}}>Delete</button>`}
       </div>
-    </div>
-  );
-}
+    </div>`;
+  }
 
-/* ── BILLS TAB ─────────────────────────────────────────────────────────────── */
-function BillsTab({bills,income,updBl,updI}) {
-  const [filter,setFilter]=useState("pending");
-  const [eid,setEid]=useState(null);
-  const [addB,setAddB]=useState(false);
-  const [addI,setAddI]=useState(false);
-  const pAmt=bills.filter(b=>!b.paid).reduce((s,b)=>s+b.amt,0);
-  const dAmt=bills.filter(b=> b.paid).reduce((s,b)=>s+b.amt,0);
-  const shown=filter==="all"?bills:filter==="pending"?bills.filter(b=>!b.paid):bills.filter(b=>b.paid);
-  const tog  =id=>updBl(p=>p.map(b=>b.id===id?{...b,paid:!b.paid}:b));
-  const del  =id=>updBl(p=>p.filter(b=>b.id!==id));
-  const savB =b=>{ if(b.id&&bills.find(x=>x.id===b.id)){updBl(p=>p.map(x=>x.id===b.id?b:x));}else{updBl(p=>[...p,{...b,id:nextId(bills)}]);} setEid(null);setAddB(false); };
-  const delI =id=>updI(p=>p.filter(x=>x.id!==id));
-  const savI =p=>{ if(p.id&&income.find(x=>x.id===p.id)){updI(prev=>prev.map(x=>x.id===p.id?p:x));}else{updI(prev=>[...prev,{...p,id:"i"+Date.now()}]);} setAddI(false); };
+  // ── Bills Tab ─────────────────────────────────────────────────────────────────
+  function BillsTab({bills, inc, uBl, uI}) {
+    var [filter,setFilter] = useState("pending");
+    var [eid,setEid]       = useState(null);
+    var [addB,setAddB]     = useState(false);
+    var pAmt = bills.filter(function(b){return !b.paid;}).reduce(function(s,b){return s+b.amt;},0);
+    var dAmt = bills.filter(function(b){return  b.paid;}).reduce(function(s,b){return s+b.amt;},0);
+    var shown = filter==="all"?bills:filter==="pending"?bills.filter(function(b){return !b.paid;}):bills.filter(function(b){return b.paid;});
+    var tog = function(id){ uBl(function(p){return p.map(function(b){return b.id===id?Object.assign({},b,{paid:!b.paid}):b;}); }); };
+    var del = function(id){ uBl(function(p){return p.filter(function(b){return b.id!==id;}); }); };
+    var savB = function(b){
+      if (b.id && bills.find(function(x){return x.id===b.id;})) {
+        uBl(function(p){return p.map(function(x){return x.id===b.id?b:x;});});
+      } else {
+        uBl(function(p){return [...p,Object.assign({},b,{id:nid(p)})];});
+      }
+      setEid(null); setAddB(false);
+    };
 
-  return (
-    <div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        <Crd label="Pending" value={fmt(pAmt)} color="#f87171" sub={`${bills.filter(b=>!b.paid).length} bills`}/>
-        <Crd label="Paid"    value={fmt(dAmt)} color="#34d399" sub={`${bills.filter(b=>b.paid).length} bills`}/>
+    return html`<div>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <${Crd} label="Pending" value=${fmt(pAmt)} color="#f87171" sub="${bills.filter(function(b){return !b.paid;}).length} bills"/>
+        <${Crd} label="Paid"    value=${fmt(dAmt)} color="#34d399" sub="${bills.filter(function(b){return b.paid;}).length} bills"/>
       </div>
-
-      {/* Income */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-        <Hdr label="Paychecks" inline/><button onClick={()=>setAddI(true)} style={btnSt}>+ Add</button>
-      </div>
-      {addI&&<IncEdit onSave={savI} onCancel={()=>setAddI(false)}/>}
-      {income.map(p=>(
-        <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-          padding:"9px 13px",marginBottom:5,background:"rgba(52,211,153,0.07)",
-          border:"1px solid rgba(52,211,153,0.15)",borderRadius:10}}>
-          <div>
-            <div style={{fontSize:13,fontWeight:500,color:"#a7f3d0"}}>{p.name}</div>
-            <div style={{fontSize:11,color:"#475569",marginTop:2}}>Day {p.day} · {p.acct==="wf"?"Wells Fargo":"Old bank"}
-              {p.note&&<span style={{color:"#f59e0b",marginLeft:5}}>· {p.note}</span>}
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:14,fontWeight:700,color:"#34d399"}}>{fmt(p.amt)}</span>
-            <button onClick={()=>delI(p.id)} style={{...btnSt,color:"#f87171"}}>✕</button>
-          </div>
-        </div>
-      ))}
-
-      {/* Bills */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,marginBottom:8}}>
-        <div style={{display:"flex",gap:6}}>
-          {[["pending","Pending"],["paid","Paid"],["all","All"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setFilter(v)} style={{
+      <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style=${{display:"flex",gap:6}}>
+          ${["pending","paid","all"].map(function(v){
+            return html`<button key=${v} onClick=${function(){setFilter(v);}} style=${{
               padding:"4px 12px",borderRadius:20,border:"1px solid",fontSize:11,cursor:"pointer",
               background:filter===v?"rgba(59,130,246,0.18)":"transparent",
               borderColor:filter===v?"#3b82f6":"rgba(255,255,255,0.1)",
-              color:filter===v?"#93c5fd":"#475569"}}>{l}</button>
-          ))}
+              color:filter===v?"#93c5fd":"#475569"}}>${v.charAt(0).toUpperCase()+v.slice(1)}</button>`;
+          })}
         </div>
-        <button onClick={()=>setAddB(true)} style={btnSt}>+ Add</button>
+        <button onClick=${function(){setAddB(true);}} style=${bSt}>+ Add</button>
       </div>
 
-      {addB&&<BillEdit onSave={savB} onCancel={()=>setAddB(false)}/>}
+      ${addB && html`<${BillEdit} onSave=${savB} onCancel=${function(){setAddB(false);}}/>`}
 
-      {shown.sort((a,b)=>(a.day||99)-(b.day||99)).map(b=>(
-        eid===b.id ? (
-          <BillEdit key={b.id} initial={b} onSave={savB} onCancel={()=>setEid(null)} onDelete={()=>{del(b.id);setEid(null);}}/>
-        ) : (
-          <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-            padding:"10px 13px",marginBottom:6,
-            background:b.paid?"rgba(255,255,255,0.02)":"rgba(255,255,255,0.03)",
-            border:`1px solid ${b.paid?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.08)"}`,
-            borderRadius:10,opacity:b.paid?0.55:1}}>
-            <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:500,textDecoration:b.paid?"line-through":"none",
-                color:b.paid?"#475569":"#e2e8f0"}}>{b.name}</div>
-              <div style={{fontSize:11,color:"#334155",marginTop:2}}>
-                {b.cat}{b.day?` · day ${b.day}`:" · variable"}
-                {b.auto&&<span style={{color:"#34d399",marginLeft:4}}>✓ auto</span>}
-                {b.acct==="wf"&&<span style={{color:"#f59e0b",marginLeft:4}}>· WF</span>}
-                {b.note&&<span style={{color:"#fbbf24",marginLeft:4}}>· {b.note}</span>}
+      ${shown.sort(function(a,b){return (a.day||99)-(b.day||99);}).map(function(b){
+        var d = b.day?du(b.day):null;
+        return eid===b.id
+          ? html`<${BillEdit} key=${b.id} initial=${b} onSave=${savB}
+              onCancel=${function(){setEid(null);}}
+              onDelete=${function(){del(b.id);setEid(null);}}/>`
+          : html`<div key=${b.id} style=${{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"10px 13px",marginBottom:6,
+              background:b.paid?"rgba(255,255,255,0.02)":"rgba(255,255,255,0.03)",
+              border:"1px solid "+(b.paid?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.08)"),
+              borderRadius:10,opacity:b.paid?0.55:1}}>
+              <div style=${{flex:1}}>
+                <div style=${{fontSize:13,fontWeight:500,
+                  textDecoration:b.paid?"line-through":"none",
+                  color:b.paid?"#475569":"#e2e8f0"}}>${b.name}</div>
+                <div style=${{fontSize:11,color:"#334155",marginTop:2}}>
+                  ${b.cat}${b.day?" · day "+b.day:" · variable"}
+                  ${b.auto && html`<span style=${{color:"#34d399",marginLeft:4}}>✓ auto</span>`}
+                  ${b.note && html`<span style=${{color:"#fbbf24",marginLeft:4}}>· ${b.note}</span>`}
+                </div>
               </div>
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:14,fontWeight:600}}>{fmt(b.amt)}</div>
-                {!b.paid&&b.day&&<div style={{fontSize:11,color:daysUntil(b.day)<=3?"#f87171":"#475569"}}>
-                  {daysUntil(b.day)===0?"today":`in ${daysUntil(b.day)}d`}</div>}
+              <div style=${{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
+                <div style=${{textAlign:"right"}}>
+                  <div style=${{fontSize:14,fontWeight:600}}>${fmt(b.amt)}</div>
+                  ${!b.paid&&b.day && html`<div style=${{fontSize:11,color:d<=3?"#f87171":"#475569"}}>
+                    ${d===0?"today":"in "+d+"d"}</div>`}
+                </div>
+                <div style=${{display:"flex",flexDirection:"column",gap:4}}>
+                  <button onClick=${function(){tog(b.id);}} style=${{...bSt,
+                    color:b.paid?"#475569":"#34d399",
+                    borderColor:b.paid?"rgba(255,255,255,0.06)":"rgba(52,211,153,0.3)"}}>
+                    ${b.paid?"↩":"✓"}</button>
+                  <button onClick=${function(){setEid(b.id);}} style=${bSt}>···</button>
+                </div>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                <button onClick={()=>tog(b.id)} style={{...btnSt,color:b.paid?"#475569":"#34d399",
-                  borderColor:b.paid?"rgba(255,255,255,0.06)":"rgba(52,211,153,0.3)"}}>{b.paid?"↩":"✓"}</button>
-                <button onClick={()=>setEid(b.id)} style={btnSt}>···</button>
-              </div>
-            </div>
-          </div>
-        )
-      ))}
-    </div>
-  );
-}
-
-function BillEdit({initial,onSave,onCancel,onDelete}) {
-  const [name,setName]=useState(initial?.name||"");
-  const [cat,setCat]=useState(initial?.cat||"");
-  const [day,setDay]=useState(initial?.day||"");
-  const [amt,setAmt]=useState(initial?.amt||"");
-  const [auto,setAuto]=useState(initial?.auto||false);
-  const [acct,setAcct]=useState(initial?.acct||"inc");
-  const [note,setNote]=useState(initial?.note||"");
-  return (
-    <div style={{background:"rgba(59,130,246,0.07)",border:"1px solid rgba(59,130,246,0.18)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Bill name" style={inputSt}/>
-        <input value={cat}  onChange={e=>setCat(e.target.value)}  placeholder="Category"  style={inputSt}/>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-        <input value={day} onChange={e=>setDay(e.target.value)} placeholder="Day of month" type="number" style={inputSt}/>
-        <input value={amt} onChange={e=>setAmt(e.target.value)} placeholder="Amount $"     type="number" style={inputSt}/>
-      </div>
-      <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional)" style={{...inputSt,marginBottom:8}}/>
-      <div style={{display:"flex",gap:12,marginBottom:10,fontSize:12}}>
-        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",color:"#94a3b8"}}>
-          <input type="checkbox" checked={auto} onChange={e=>setAuto(e.target.checked)}/> Autopay
-        </label>
-        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",color:"#94a3b8"}}>
-          Account:
-          <select value={acct} onChange={e=>setAcct(e.target.value)}
-            style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",
-              borderRadius:6,color:"#e2e8f0",padding:"2px 6px",fontSize:11}}>
-            <option value="wf">Wells Fargo</option>
-            <option value="inc">Old bank</option>
-          </select>
-        </label>
-      </div>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>onSave({...(initial||{}),name,cat,day:parseInt(day)||null,
-          amt:parseFloat(amt)||0,auto,acct,note,paid:initial?.paid||false})}
-          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
-        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
-        {onDelete&&<button onClick={onDelete} style={{...btnSt,background:"rgba(239,68,68,0.12)",color:"#f87171"}}>Delete</button>}
-      </div>
-    </div>
-  );
-}
-
-function IncEdit({initial,onSave,onCancel}) {
-  const [name,setName]=useState(initial?.name||"");
-  const [amt,setAmt]=useState(initial?.amt||"");
-  const [day,setDay]=useState(initial?.day||"");
-  const [acct,setAcct]=useState(initial?.acct||"wf");
-  const [note,setNote]=useState(initial?.note||"");
-  return (
-    <div style={{background:"rgba(52,211,153,0.06)",border:"1px solid rgba(52,211,153,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Payer name" style={inputSt}/>
-        <input value={amt}  onChange={e=>setAmt(e.target.value)}  placeholder="Amount $" type="number" style={inputSt}/>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-        <input value={day}  onChange={e=>setDay(e.target.value)}  placeholder="Pay day" type="number" style={inputSt}/>
-        <select value={acct} onChange={e=>setAcct(e.target.value)} style={{...inputSt,appearance:"none"}}>
-          <option value="wf">Wells Fargo</option>
-          <option value="inc">Old bank</option>
-        </select>
-      </div>
-      <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional)" style={{...inputSt,marginBottom:8}}/>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>onSave({...(initial||{}),name,amt:parseFloat(amt)||0,day:parseInt(day)||1,acct,note})}
-          style={{...btnSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
-        <button onClick={onCancel} style={{...btnSt,flex:1}}>Cancel</button>
-      </div>
-    </div>
-  );
-}
-
-/* ── DEBT ──────────────────────────────────────────────────────────────────── */
-function Debt({expandD,setExpandD}) {
-  const total  = DEBTS.reduce((s,d)=>s+d.balance,0);
-  const minPmt = DEBTS.reduce((s,d)=>s+d.min,0);
-  const sorted = [...DEBTS].sort((a,b)=>b.rate-a.rate);
-  return (
-    <div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        <Crd label="Total debt" value={fmt(total)} color="#f87171" sub="all accounts"/>
-        <Crd label="Min payments" value={fmt(minPmt)} color="#64748b" sub="/month"/>
-      </div>
-      <Alrt color="blue" msg="Tap any debt to expand · Update balances monthly in Excel workbook"/>
-      <Hdr label="Attack order — highest rate first"/>
-      {sorted.map((d,i)=>{
-        const open=expandD===d.name;
-        return (
-          <div key={d.name} onClick={()=>setExpandD(open?null:d.name)}
-            style={{background:i===0?"rgba(239,68,68,0.09)":"rgba(255,255,255,0.03)",
-              border:`1px solid ${i===0?"rgba(239,68,68,0.25)":"rgba(255,255,255,0.07)"}`,
-              borderRadius:10,padding:"11px 13px",marginBottom:7,cursor:"pointer"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{display:"flex",alignItems:"center",gap:7}}>
-                {i===0&&<span style={{fontSize:9,background:"#ef4444",color:"#fff",padding:"1px 6px",borderRadius:10,fontWeight:700}}>ATTACK</span>}
-                <span style={{fontSize:13,fontWeight:500}}>{d.name}</span>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:14,fontWeight:700}}>{fmt(d.balance)}</div>
-                <div style={{fontSize:11,color:"#ef4444"}}>{d.rate}% APR</div>
-              </div>
-            </div>
-            {open&&(
-              <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid rgba(255,255,255,0.07)",fontSize:12,color:"#94a3b8"}}>
-                {[["Min payment",fmt(d.min)+"/mo"],
-                  ["At min only","~"+Math.ceil(d.balance/d.min)+" months"],
-                  ["Monthly interest",fmt(Math.round(d.balance*d.rate/100/12))]
-                ].map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <span>{k}</span><span style={{color:"#e2e8f0"}}>{v}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
+            </div>`;
       })}
-    </div>
-  );
-}
+    </div>`;
+  }
 
-/* ── SHARED ────────────────────────────────────────────────────────────────── */
-function Crd({label,value,color,sub}) {
-  return (
-    <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:11,padding:"11px 13px"}}>
-      <div style={{fontSize:10,color:"#475569",marginBottom:3}}>{label}</div>
-      <div style={{fontSize:19,fontWeight:700,color}}>{value}</div>
-      <div style={{fontSize:10,color:"#334155",marginTop:2}}>{sub}</div>
-    </div>
-  );
-}
-function Hdr({label,color,inline}) {
-  const el=<span style={{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",color:color||"#3b82f6"}}>{label}</span>;
-  return inline?el:<div style={{marginBottom:7,marginTop:8}}>{el}</div>;
-}
-function Alrt({color,msg}) {
-  const c=color==="red"?{bg:"rgba(239,68,68,0.08)",bd:"rgba(239,68,68,0.2)",tx:"#fca5a5"}
-    :color==="amber"?{bg:"rgba(251,191,36,0.08)",bd:"rgba(251,191,36,0.2)",tx:"#fde68a"}
-    :{bg:"rgba(59,130,246,0.07)",bd:"rgba(59,130,246,0.18)",tx:"#93c5fd"};
-  return <div style={{background:c.bg,border:`1px solid ${c.bd}`,borderRadius:10,padding:"9px 13px",marginBottom:10,fontSize:12,color:c.tx}}>{msg}</div>;
-}
+  function BillEdit({initial, onSave, onCancel, onDelete}) {
+    var [name,setName] = useState(initial?initial.name:"");
+    var [cat,setCat]   = useState(initial?initial.cat:"");
+    var [day,setDay]   = useState(initial&&initial.day?String(initial.day):"");
+    var [amt,setAmt]   = useState(initial?String(initial.amt):"");
+    var [auto,setAuto] = useState(initial?initial.auto:false);
+    var [note,setNote] = useState(initial?initial.note||"":"");
+    return html`<div style=${{background:"rgba(59,130,246,0.07)",border:"1px solid rgba(59,130,246,0.18)",
+      borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <input value=${name} onChange=${function(e){setName(e.target.value);}} placeholder="Bill name" style=${iSt}/>
+        <input value=${cat}  onChange=${function(e){setCat(e.target.value);}}  placeholder="Category"  style=${iSt}/>
+      </div>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+        <input value=${day} onChange=${function(e){setDay(e.target.value);}} placeholder="Day of month" type="number" style=${iSt}/>
+        <input value=${amt} onChange=${function(e){setAmt(e.target.value);}} placeholder="Amount $"     type="number" style=${iSt}/>
+      </div>
+      <input value=${note} onChange=${function(e){setNote(e.target.value);}} placeholder="Note (optional)"
+        style=${{...iSt,marginBottom:8}}/>
+      <label style=${{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#94a3b8",marginBottom:10,cursor:"pointer"}}>
+        <input type="checkbox" checked=${auto} onChange=${function(e){setAuto(e.target.checked);}}/> Autopay
+      </label>
+      <div style=${{display:"flex",gap:6}}>
+        <button onClick=${function(){onSave(Object.assign({},initial||{},
+          {name,cat,day:parseInt(day)||null,amt:parseFloat(amt)||0,auto,note,paid:initial?initial.paid:false}));}}
+          style=${{...bSt,background:"rgba(52,211,153,0.15)",color:"#34d399",flex:1}}>Save</button>
+        <button onClick=${onCancel} style=${{...bSt,flex:1}}>Cancel</button>
+        ${onDelete && html`<button onClick=${onDelete}
+          style=${{...bSt,background:"rgba(239,68,68,0.12)",color:"#f87171"}}>Delete</button>`}
+      </div>
+    </div>`;
+  }
 
+  // ── Debt Tab ──────────────────────────────────────────────────────────────────
+  function DebtTab({expD, setExpD}) {
+    var total  = DEBTS.reduce(function(s,d){return s+d.balance;},0);
+    var minPmt = DEBTS.reduce(function(s,d){return s+d.min;},0);
+    var sorted = DEBTS.slice().sort(function(a,b){return b.rate-a.rate;});
+    return html`<div>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <${Crd} label="Total debt" value=${fmt(total)} color="#f87171" sub="all accounts"/>
+        <${Crd} label="Min payments" value=${fmt(minPmt)} color="#64748b" sub="/month"/>
+      </div>
+      <${Alrt} color="blue" msg="Tap any debt to expand · Update balances monthly"/>
+      <${Hdr} label="Attack order — highest rate first"/>
+      ${sorted.map(function(d,i){
+        var open = expD===d.name;
+        return html`<div key=${d.name} onClick=${function(){setExpD(open?null:d.name);}}
+          style=${{background:i===0?"rgba(239,68,68,0.09)":"rgba(255,255,255,0.03)",
+            border:"1px solid "+(i===0?"rgba(239,68,68,0.25)":"rgba(255,255,255,0.07)"),
+            borderRadius:10,padding:"11px 13px",marginBottom:7,cursor:"pointer"}}>
+          <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style=${{display:"flex",alignItems:"center",gap:7}}>
+              ${i===0 && html`<span style=${{fontSize:9,background:"#ef4444",color:"#fff",
+                padding:"1px 6px",borderRadius:10,fontWeight:700}}>ATTACK</span>`}
+              <span style=${{fontSize:13,fontWeight:500}}>${d.name}</span>
+            </div>
+            <div style=${{textAlign:"right"}}>
+              <div style=${{fontSize:14,fontWeight:700}}>${fmt(d.balance)}</div>
+              <div style=${{fontSize:11,color:"#ef4444"}}>${d.rate}% APR</div>
+            </div>
+          </div>
+          ${open && html`<div style=${{marginTop:9,paddingTop:9,borderTop:"1px solid rgba(255,255,255,0.07)",
+            fontSize:12,color:"#94a3b8"}}>
+            ${[["Min payment",fmt(d.min)+"/mo"],
+               ["At min only","~"+Math.ceil(d.balance/d.min)+" months"],
+               ["Monthly interest",fmt(Math.round(d.balance*d.rate/100/12))]
+              ].map(function(kv){
+                return html`<div style=${{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span>${kv[0]}</span>
+                  <span style=${{color:"#e2e8f0"}}>${kv[1]}</span>
+                </div>`;
+              })}
+          </div>`}
+        </div>`;
+      })}
+    </div>`;
+  }
 
-      // Mount
-      var container = document.getElementById('root');
-      var root = ReactDOM.createRoot(container);
-      root.render(React.createElement(App));
-    })();
-  </script>
+  // ── Mount ─────────────────────────────────────────────────────────────────────
+  var root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(React.createElement(App));
+})();
+</script>
 
 </body>
 </html>
