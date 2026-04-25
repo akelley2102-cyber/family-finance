@@ -1,4 +1,4 @@
-l<!DOCTYPE html>
+<!DOCTYPE html>
 
 <html lang="en">
 <head>
@@ -65,6 +65,35 @@ function setSyncStatus(msg, color) {
   });
 }
 
+function showToast(msg, color) {
+  // Remove existing toast
+  var old = document.getElementById('ff-toast');
+  if (old) old.remove();
+  
+  var t = document.createElement('div');
+  t.id = 'ff-toast';
+  t.textContent = msg;
+  t.style.cssText = [
+    'position:fixed','bottom:90px','left:50%','transform:translateX(-50%)',
+    'background:'+(color||'#34d399'),'color:#fff',
+    'padding:8px 20px','border-radius:20px','font-size:13px',
+    'font-family:sans-serif','font-weight:600','z-index:9999',
+    'box-shadow:0 4px 12px rgba(0,0,0,0.4)',
+    'transition:opacity 0.3s','opacity:1',
+    'white-space:nowrap'
+  ].join(';');
+  document.body.appendChild(t);
+  
+  setTimeout(function(){
+    t.style.opacity = '0';
+    setTimeout(function(){ t.remove(); }, 300);
+  }, 2000);
+  
+  // Also update sync-status in header
+  setSyncStatus(msg, color);
+  setTimeout(function(){ setSyncStatus(''); }, 2500);
+}
+
 window.storage = {
   get: async function(k) {
     try {
@@ -85,9 +114,15 @@ window.storage = {
     localStorage.setItem(k, String(v));
     try {
       await db.collection(COLL).doc(k).set({value:String(v), updated:new Date().toISOString()});
-      setSyncStatus('✓ Synced', '#34d399');
-      setTimeout(function(){ setSyncStatus(''); }, 2000);
-    } catch(e) { setSyncStatus('● Offline', '#fbbf24'); }
+      showToast('✓ Saved & Synced', '#34d399');
+    } catch(e) {
+      console.warn('Firebase sync error:', e.code, e.message);
+      if (e.code === 'permission-denied') {
+        showToast('⚠ Check Firestore rules', '#f87171');
+      } else {
+        showToast('● Saved offline', '#fbbf24');
+      }
+    }
     return {key:k, value:v};
   },
   delete: async function(k) {
