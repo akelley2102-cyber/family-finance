@@ -20,6 +20,7 @@
     button{-webkit-tap-highlight-color:transparent;user-select:none;font-family:inherit}
     input,select,textarea{font-family:inherit}
     input[type=number]::-webkit-inner-spin-button{opacity:1}
+    @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
   </style>
 </head>
 <body>
@@ -37,7 +38,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script src="https://unpkg.com/htm@3.1.1/dist/htm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.js"></script>
 
 <!-- Firebase -->
 
@@ -300,6 +301,8 @@ if ('serviceWorker' in navigator) {
     var [ready,setReady]   = useState(false);
     var [expD,setExpD]     = useState(null);
     var [showExp,setShowExp]     = useState(false);
+    var [refreshing,setRefreshing]   = useState(false);
+    var [showSettings,setShowSettings] = useState(false);
     var [showReset,setShowReset] = useState(false);
     var [newMonthAlert,setNewMonthAlert] = useState(false);
 
@@ -374,6 +377,20 @@ if ('serviceWorker' in navigator) {
     var pend  = bills.filter(function(b){return !b.paid;}).reduce(function(s,b){return s+b.amt;},0);
     var ipend = inc.filter(function(p){return !p.received;}).reduce(function(s,p){return s+p.amt;},0);
     var proj  = total+ipend-pend;
+
+    var doRefresh = function(){
+      setRefreshing(true);
+      Promise.all([ld(KEYS.a,DA),ld(KEYS.b,DB),ld(KEYS.bl,DBL),ld(KEYS.i,DI)])
+        .then(function(r){
+          setAccs(r[0]);setBuds(r[1]);setBills(r[2]);setInc(r[3]);
+          setRefreshing(false);
+          showToast("✓ Synced with latest data", "#34d399");
+        })
+        .catch(function(){
+          setRefreshing(false);
+          showToast("● Could not reach server", "#f87171");
+        });
+    };
 
     var doExport = function(){
       var txt = JSON.stringify({exported:new Date().toLocaleString(),accounts:accs,budgets:buds,bills:bills,income:inc},null,2);
@@ -453,15 +470,12 @@ if ('serviceWorker' in navigator) {
             <span style=${{fontSize:10,fontWeight:tab===t.id?600:400}}>${t.l}</span>
           </button>`;
         })}
-        <button onClick=${doExport} style=${{background:"none",border:"none",cursor:"pointer",
-          display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 12px",color:"#334155"}}>
-          <span style=${{fontSize:18}}>⬆</span>
-          <span style=${{fontSize:10}}>Export</span>
-        </button>
-        <button onClick=${function(){setShowReset(true);}} style=${{background:"none",border:"none",cursor:"pointer",
-          display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 12px",color:"#334155"}}>
-          <span style=${{fontSize:18}}>↺</span>
-          <span style=${{fontSize:10}}>Month</span>
+        <button onClick=${function(){setShowSettings(true);}} style=${{background:"none",border:"none",cursor:"pointer",
+          display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 12px",
+          color:refreshing?"#3b82f6":"#334155",transition:"color 0.2s"}}>
+          <span style=${{fontSize:18,display:"inline-block",
+            animation:refreshing?"spin 0.8s linear infinite":"none"}}>⚙</span>
+          <span style=${{fontSize:10}}>More</span>
         </button>
       </div>
 
@@ -555,6 +569,61 @@ if ('serviceWorker' in navigator) {
               Cancel
             </button>
           </div>
+        </div>
+      </div>`}
+
+      ${showSettings && html`<div style=${{position:"fixed",top:0,left:0,right:0,bottom:0,
+        background:"rgba(0,0,0,0.85)",zIndex:998,display:"flex",alignItems:"flex-end",
+        justifyContent:"center"}}>
+        <div style=${{background:"#111827",borderRadius:"16px 16px 0 0",padding:"20px 20px 36px",
+          width:"100%",maxWidth:420,border:"1px solid rgba(255,255,255,0.08)"}}>
+          <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+            <div style=${{fontSize:15,fontWeight:700}}>Settings & Tools</div>
+            <button onClick=${function(){setShowSettings(false);}}
+              style=${{background:"rgba(255,255,255,0.08)",border:"none",borderRadius:20,
+                color:"#94a3b8",fontSize:13,padding:"4px 12px",cursor:"pointer",fontFamily:"inherit"}}>
+              Close
+            </button>
+          </div>
+
+          <!-- Sync -->
+          <button onClick=${function(){doRefresh();setShowSettings(false);}}
+            style=${{width:"100%",display:"flex",alignItems:"center",gap:14,
+              background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",
+              borderRadius:12,padding:"14px 16px",marginBottom:10,cursor:"pointer",fontFamily:"inherit",
+              textAlign:"left"}}>
+            <span style=${{fontSize:24}}>⟳</span>
+            <div>
+              <div style=${{fontSize:14,fontWeight:600,color:"#93c5fd"}}>Sync now</div>
+              <div style=${{fontSize:12,color:"#475569"}}>Pull latest data from Firebase</div>
+            </div>
+          </button>
+
+          <!-- New month -->
+          <button onClick=${function(){setShowReset(true);setShowSettings(false);}}
+            style=${{width:"100%",display:"flex",alignItems:"center",gap:14,
+              background:"rgba(52,211,153,0.07)",border:"1px solid rgba(52,211,153,0.2)",
+              borderRadius:12,padding:"14px 16px",marginBottom:10,cursor:"pointer",fontFamily:"inherit",
+              textAlign:"left"}}>
+            <span style=${{fontSize:24}}>📅</span>
+            <div>
+              <div style=${{fontSize:14,fontWeight:600,color:"#34d399"}}>New month</div>
+              <div style=${{fontSize:12,color:"#475569"}}>Reset bills, budget & income for new month</div>
+            </div>
+          </button>
+
+          <!-- Export -->
+          <button onClick=${function(){doExport();setShowSettings(false);}}
+            style=${{width:"100%",display:"flex",alignItems:"center",gap:14,
+              background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",
+              borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:"inherit",
+              textAlign:"left"}}>
+            <span style=${{fontSize:24}}>⬆</span>
+            <div>
+              <div style=${{fontSize:14,fontWeight:600,color:"#e2e8f0"}}>Export data</div>
+              <div style=${{fontSize:12,color:"#475569"}}>Copy all data to paste into Claude</div>
+            </div>
+          </button>
         </div>
       </div>`}
 
