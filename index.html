@@ -205,7 +205,7 @@ if ('serviceWorker' in navigator) {
     {name:"Ally Car",     balance:15000, rate:6.5,min:530},
     {name:"Hyundai",      balance:20000, rate:5,  min:665},
   ];
-  var KEYS = {a:"ff:accounts4", b:"ff:budgets4", bl:"ff:bills4", i:"ff:income4"};
+  var KEYS = {a:"ff:accounts4", b:"ff:budgets4", bl:"ff:bills4", i:"ff:income4", m:"ff:month4"};
 
   async function ld(k, fb) {
     try { var r=await window.storage.get(k); return r?JSON.parse(r.value):fb; } catch(e){return fb;}
@@ -254,12 +254,64 @@ if ('serviceWorker' in navigator) {
     var [inc,setInc]       = useState(null);
     var [ready,setReady]   = useState(false);
     var [expD,setExpD]     = useState(null);
-    var [showExp,setShowExp] = useState(false);
+    var [showExp,setShowExp]     = useState(false);
+    var [showReset,setShowReset] = useState(false);
+    var [newMonthAlert,setNewMonthAlert] = useState(false);
+
+    var curMonthKey = today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0");
 
     useEffect(function(){
-      Promise.all([ld(KEYS.a,DA),ld(KEYS.b,DB),ld(KEYS.bl,DBL),ld(KEYS.i,DI)])
-        .then(function(r){ setAccs(r[0]);setBuds(r[1]);setBills(r[2]);setInc(r[3]);setReady(true); });
+      Promise.all([ld(KEYS.a,DA),ld(KEYS.b,DB),ld(KEYS.bl,DBL),ld(KEYS.i,DI),ld(KEYS.m,null)])
+        .then(function(r){
+          setAccs(r[0]);setBuds(r[1]);setBills(r[2]);setInc(r[3]);
+          // Check if month has changed since last use
+          var storedMonth = r[4] ? r[4].key ? null : r[4] : null;
+          if (storedMonth && storedMonth !== curMonthKey) {
+            setNewMonthAlert(true);
+          }
+          setReady(true);
+        });
     },[]);
+
+    var doReset = function(saveHistory) {
+      // Archive current month data first
+      if (saveHistory) {
+        var archive = {month:curMonthKey, budgets:buds, bills:bills, income:inc, archived:new Date().toISOString()};
+        sv("ff:history:"+curMonthKey, archive);
+      }
+      // Smart reset:
+      // - Already paid bills → reset to unpaid for new month
+      // - Unpaid bills → keep as unpaid but add "⚠ Unpaid from last month" note
+      var prevMonth = today.toLocaleString("default",{month:"long"});
+      var resetBills = bills.map(function(b){
+        if (b.paid) {
+          // Was paid last month — reset cleanly for new month
+          return Object.assign({},b,{paid:false, note: b.note ? b.note.replace(/⚠ Unpaid from .+/,'').trim() : undefined});
+        } else {
+          // Was NOT paid last month — flag it
+          var existingNote = (b.note||'').replace(/⚠ Unpaid from .+/,'').trim();
+          var newNote = ("⚠ Unpaid from "+prevMonth+(existingNote?" · "+existingNote:"")).trim();
+          return Object.assign({},b,{paid:false, note:newNote});
+        }
+      });
+      // Reset budget spent to 0
+      var resetBuds = buds.map(function(b){ return Object.assign({},b,{spent:0}); });
+      // Reset income received
+      var resetInc = inc.map(function(p){ return Object.assign({},p,{received:false}); });
+      // Save everything
+      sv(KEYS.bl, resetBills); setBills(resetBills);
+      sv(KEYS.b,  resetBuds);  setBuds(resetBuds);
+      sv(KEYS.i,  resetInc);   setInc(resetInc);
+      sv(KEYS.m,  curMonthKey);
+      setShowReset(false);
+      setNewMonthAlert(false);
+      var unpaidCount = bills.filter(function(b){return !b.paid;}).length;
+      if (unpaidCount > 0) {
+        showToast("✓ Started — "+unpaidCount+" bill(s) flagged from last month", "#fbbf24");
+      } else {
+        showToast("✓ New month started!", "#34d399");
+      }
+    };
 
     var uA  = useCallback(function(fn){ setAccs(function(p){  var n=fn(p);sv(KEYS.a,n); return n;}); },[]);
     var uB  = useCallback(function(fn){ setBuds(function(p){  var n=fn(p);sv(KEYS.b,n); return n;}); },[]);
@@ -358,9 +410,106 @@ if ('serviceWorker' in navigator) {
           <span style=${{fontSize:18}}>⬆</span>
           <span style=${{fontSize:10}}>Export</span>
         </button>
+        <button onClick=${function(){setShowReset(true);}} style=${{background:"none",border:"none",cursor:"pointer",
+          display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"0 12px",color:"#334155"}}>
+          <span style=${{fontSize:18}}>↺</span>
+          <span style=${{fontSize:10}}>Month</span>
+        </button>
       </div>
 
       <!-- Export modal -->
+      ${newMonthAlert && html`<div style=${{position:"fixed",top:0,left:0,right:0,bottom:0,
+        background:"rgba(0,0,0,0.88)",zIndex:998,display:"flex",alignItems:"center",
+        justifyContent:"center",padding:20}}>
+        <div style=${{background:"#1a2744",borderRadius:16,padding:24,width:"100%",maxWidth:380,
+          border:"1px solid rgba(59,130,246,0.3)"}}>
+          <div style=${{fontSize:24,marginBottom:8}}>📅</div>
+          <div style=${{fontSize:16,fontWeight:700,marginBottom:8}}>New month detected!</div>
+          <div style=${{fontSize:13,color:"#94a3b8",marginBottom:12,lineHeight:1.5}}>
+            It looks like a new month has started. Would you like to reset for
+            <strong style=${{color:"#e2e8f0"}}> ${MON}</strong>?
+            Spending totals reset to $0, bills reset to unpaid, paychecks reset to pending.
+            Previous month saved automatically.
+          </div>
+          ${bills.filter(function(b){return !b.paid;}).length > 0 && html`<div style=${{
+            background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",
+            borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:12}}>
+            <div style=${{color:"#fbbf24",fontWeight:600,marginBottom:4}}>
+              ⚠ ${bills.filter(function(b){return !b.paid;}).length} unpaid bill(s) will be flagged:
+            </div>
+            ${bills.filter(function(b){return !b.paid;}).map(function(b){
+              return html`<div key=${b.id} style=${{color:"#fde68a",fontSize:11,marginTop:2}}>
+                · ${b.name} — $${Math.round(b.amt).toLocaleString()}
+              </div>`;
+            })}
+          </div>`}
+          <div style=${{fontSize:12,color:"#475569",marginBottom:16}}>
+            Unpaid bills carry forward with a warning so nothing gets missed.
+          </div>
+          <div style=${{display:"flex",gap:8}}>
+            <button onClick=${function(){doReset(true);}}
+              style=${{flex:1,padding:"12px",borderRadius:10,border:"none",
+                background:"rgba(59,130,246,0.2)",color:"#93c5fd",fontSize:14,
+                cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+              ✓ Start ${MON}
+            </button>
+            <button onClick=${function(){setNewMonthAlert(false);sv(KEYS.m,curMonthKey);}}
+              style=${{padding:"12px 16px",borderRadius:10,border:"1px solid rgba(255,255,255,0.1)",
+                background:"transparent",color:"#94a3b8",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+              Not yet
+            </button>
+          </div>
+        </div>
+      </div>`}
+
+      ${showReset && html`<div style=${{position:"fixed",top:0,left:0,right:0,bottom:0,
+        background:"rgba(0,0,0,0.88)",zIndex:998,display:"flex",alignItems:"center",
+        justifyContent:"center",padding:20}}>
+        <div style=${{background:"#1a2744",borderRadius:16,padding:24,width:"100%",maxWidth:380,
+          border:"1px solid rgba(255,255,255,0.1)"}}>
+          <div style=${{fontSize:24,marginBottom:8}}>↺</div>
+          <div style=${{fontSize:16,fontWeight:700,marginBottom:8}}>Start new month?</div>
+          <div style=${{fontSize:13,color:"#94a3b8",marginBottom:8,lineHeight:1.5}}>
+            This will reset for <strong style=${{color:"#e2e8f0"}}>${MON}</strong>:
+          </div>
+          <div style=${{fontSize:13,color:"#94a3b8",marginBottom:12,lineHeight:1.8}}>
+            ✓ Paid bills reset to unpaid for new month<br/>
+            ✓ Budget spending reset to $0<br/>
+            ✓ Paychecks marked as pending<br/>
+            ✓ Previous month archived
+          </div>
+          ${bills.filter(function(b){return !b.paid;}).length > 0 && html`<div style=${{
+            background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",
+            borderRadius:8,padding:"10px 12px",marginBottom:16,fontSize:12}}>
+            <div style=${{color:"#fbbf24",fontWeight:600,marginBottom:4}}>
+              ⚠ ${bills.filter(function(b){return !b.paid;}).length} unpaid bill(s) from this month:
+            </div>
+            ${bills.filter(function(b){return !b.paid;}).map(function(b){
+              return html`<div key=${b.id} style=${{color:"#fde68a",fontSize:11,marginTop:2}}>
+                · ${b.name} — $${Math.round(b.amt).toLocaleString()}
+                ${!b.day?" (no fixed date)":"(day "+b.day+")"}
+              </div>`;
+            })}
+            <div style=${{color:"#94a3b8",fontSize:11,marginTop:6}}>
+              These will be flagged "⚠ Unpaid from last month" so you don't lose track.
+            </div>
+          </div>`}
+          <div style=${{display:"flex",gap:8}}>
+            <button onClick=${function(){doReset(true);}}
+              style=${{flex:1,padding:"12px",borderRadius:10,border:"none",
+                background:"rgba(52,211,153,0.2)",color:"#34d399",fontSize:14,
+                cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+              Reset for ${MON}
+            </button>
+            <button onClick=${function(){setShowReset(false);}}
+              style=${{padding:"12px 16px",borderRadius:10,border:"1px solid rgba(255,255,255,0.1)",
+                background:"transparent",color:"#94a3b8",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>`}
+
       ${showExp && html`<div style=${{position:"fixed",top:0,left:0,right:0,bottom:0,
         background:"rgba(0,0,0,0.85)",zIndex:999,display:"flex",alignItems:"center",
         justifyContent:"center",padding:20}}>
