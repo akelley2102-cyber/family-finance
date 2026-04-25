@@ -28,7 +28,8 @@
   <div id="root">
     <div id="splash" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#080d1a;color:#64748b;font-family:sans-serif;flex-direction:column;gap:10px">
       <div style="font-size:36px">◎</div>
-      <div style="font-size:14px">Loading...</div>
+      <div style="font-size:14px">Loading Family Finance...</div>
+      <div id="sync-status" style="font-size:11px;color:#475569;margin-top:4px"></div>
     </div>
   </div>
 
@@ -38,17 +39,78 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 
-  <!-- localStorage storage adapter -->
+  <!-- Firebase compat SDK (global scope, no module needed) -->
+
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
 
   <script>
-    window.storage = {
-      get:    async function(k)   { try{var v=localStorage.getItem(k);return v?{key:k,value:v}:null;}catch(e){return null;} },
-      set:    async function(k,v) { try{localStorage.setItem(k,String(v));return{key:k,value:v};}catch(e){return null;} },
-      delete: async function(k)   { try{localStorage.removeItem(k);return{key:k,deleted:true};}catch(e){return null;} },
-      list:   async function(pfx) { try{var ks=Object.keys(localStorage).filter(function(k){return!pfx||k.startsWith(pfx)});return{keys:ks};}catch(e){return{keys:[]};} }
+    var firebaseConfig = {
+      apiKey: "AIzaSyCKHN2Qb_rpWGwgvSfHCNQ84kz0FQy1X00",
+      authDomain: "family-finance-1596d.firebaseapp.com",
+      projectId: "family-finance-1596d",
+      storageBucket: "family-finance-1596d.firebasestorage.app",
+      messagingSenderId: "567138404714",
+      appId: "1:567138404714:web:0cfb9b67156856d3de3d13"
     };
-    if('serviceWorker' in navigator){
-      window.addEventListener('load',function(){
+    firebase.initializeApp(firebaseConfig);
+    var db   = firebase.firestore();
+    var COLL = "family-finance";
+
+    function setSyncStatus(msg, color) {
+      var els = document.querySelectorAll('#sync-status');
+      els.forEach(function(el) { el.textContent = msg; el.style.color = color || '#64748b'; });
+    }
+
+    window.storage = {
+      get: async function(k) {
+        try {
+          var snap = await db.collection(COLL).doc(k).get();
+          if (snap.exists) return { key: k, value: snap.data().value };
+          var local = localStorage.getItem(k);
+          if (local) {
+            // Migrate local data up to Firestore on first load
+            db.collection(COLL).doc(k).set({ value: local, updated: new Date().toISOString() }).catch(function(){});
+            return { key: k, value: local };
+          }
+          return null;
+        } catch(e) {
+          var v = localStorage.getItem(k);
+          return v ? { key: k, value: v } : null;
+        }
+      },
+      set: async function(k, v) {
+        localStorage.setItem(k, String(v));
+        try {
+          await db.collection(COLL).doc(k).set({ value: String(v), updated: new Date().toISOString() });
+          setSyncStatus('✓ Synced', '#34d399');
+          setTimeout(function(){ setSyncStatus(''); }, 2000);
+        } catch(e) {
+          setSyncStatus('● Offline', '#fbbf24');
+        }
+        return { key: k, value: v };
+      },
+      delete: async function(k) {
+        localStorage.removeItem(k);
+        try { await db.collection(COLL).doc(k).delete(); } catch(e) {}
+        return { key: k, deleted: true };
+      },
+      list: async function(pfx) {
+        try {
+          var snap = await db.collection(COLL).get();
+          var keys = [];
+          snap.forEach(function(d) { if (!pfx || d.id.startsWith(pfx)) keys.push(d.id); });
+          return { keys: keys };
+        } catch(e) {
+          var ks = Object.keys(localStorage).filter(function(k){ return !pfx || k.startsWith(pfx); });
+          return { keys: ks };
+        }
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function(){
         navigator.serviceWorker.register('sw.js').catch(function(){});
       });
     }
@@ -297,7 +359,10 @@ function Header({accounts,total,updA}) {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <div style={{fontSize:11,color:"#475569",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>{MONTH} · Day {todayDay}</div>
-          <div style={{fontSize:12,color:"#64748b"}}>Family Finance</div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{fontSize:12,color:"#64748b"}}>Family Finance</div>
+            <div id="sync-status" style={{fontSize:10,color:"#34d399"}}></div>
+          </div>
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:10,color:"#475569",marginBottom:2}}>Total balance</div>
