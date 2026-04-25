@@ -245,6 +245,51 @@ if ('serviceWorker' in navigator) {
       padding:"9px 13px",marginBottom:10,fontSize:12,color:c.tx}}>${msg}</div>`;
   }
 
+  // ── Account Chip — tap balance to edit inline ────────────────────────────────
+  function AccChip({a, onUpdate}) {
+    var [editing, setEditing] = useState(false);
+    var [val, setVal]         = useState(String(Math.round(a.balance)));
+    var [showDel, setShowDel] = useState(false);
+
+    var commit = function() {
+      var n = parseFloat(val);
+      if (!isNaN(n)) onUpdate(n);
+      setEditing(false);
+    };
+
+    if (editing) {
+      return html`<div style=${{display:"inline-flex",alignItems:"center",gap:4,
+        background:"rgba(59,130,246,0.15)",border:"1px solid #3b82f6",
+        borderRadius:20,padding:"3px 6px 3px 10px",fontSize:11}}>
+        <span style=${{width:6,height:6,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
+        <span style=${{color:"#94a3b8"}}>${a.name.split(" ")[0]}</span>
+        <span style=${{color:"#64748b"}}>$</span>
+        <input type="number" value=${val} autoFocus
+          onChange=${function(e){setVal(e.target.value);}}
+          onBlur=${commit}
+          onKeyDown=${function(e){if(e.key==="Enter")commit();if(e.key==="Escape")setEditing(false);}}
+          style=${{width:72,background:"transparent",border:"none",color:"#e2e8f0",
+            fontSize:12,fontWeight:700,fontFamily:"inherit",outline:"none",textAlign:"right"}}/>
+        <button onClick=${commit}
+          style=${{background:"rgba(52,211,153,0.2)",border:"none",borderRadius:10,
+            color:"#34d399",fontSize:10,padding:"2px 6px",cursor:"pointer",fontFamily:"inherit"}}>✓</button>
+      </div>`;
+    }
+
+    return html`<div onClick=${function(){setEditing(true);setVal(String(Math.round(a.balance)));}}
+      style=${{display:"inline-flex",alignItems:"center",gap:5,
+        background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",
+        borderRadius:20,padding:"3px 10px",fontSize:11,cursor:"pointer",
+        transition:"background 0.15s"}}
+      onMouseOver=${function(e){e.currentTarget.style.background="rgba(255,255,255,0.09)";}}
+      onMouseOut=${function(e){e.currentTarget.style.background="rgba(255,255,255,0.05);";}}>
+      <span style=${{width:6,height:6,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
+      <span style=${{color:"#94a3b8"}}>${a.name.split(" ")[0]}</span>
+      <span style=${{color:"#e2e8f0",fontWeight:600}}>${fmt(a.balance)}</span>
+      <span style=${{color:"#334155",fontSize:9}}>✎</span>
+    </div>`;
+  }
+
   // ── Main App ──────────────────────────────────────────────────────────────────
   function App() {
     var [tab,setTab]       = useState("cashflow");
@@ -368,17 +413,20 @@ if ('serviceWorker' in navigator) {
             <div style=${{height:"100%",width:MP+"%",background:"#3b82f6",borderRadius:2}}/>
           </div>
         </div>
-        <!-- Account chips -->
+        <!-- Account chips — tap to edit balance -->
         <div style=${{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
           ${accs.map(function(a){
-            return html`<div key=${a.id} style=${{display:"inline-flex",alignItems:"center",gap:5,
-              background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",
-              borderRadius:20,padding:"3px 10px",fontSize:11}}>
-              <span style=${{width:6,height:6,borderRadius:"50%",background:a.color,display:"inline-block"}}/>
-              <span style=${{color:"#94a3b8"}}>${a.name.split(" ")[0]}</span>
-              <span style=${{color:"#e2e8f0",fontWeight:600}}>${fmt(a.balance)}</span>
-            </div>`;
+            return html`<${AccChip} key=${a.id} a=${a} onUpdate=${function(newBal){
+              uA(function(p){ return p.map(function(x){ return x.id===a.id?Object.assign({},x,{balance:newBal}):x; }); });
+            }}/>`;
           })}
+          <button onClick=${function(){
+            uA(function(p){ return [...p,{id:"a"+Date.now(),name:"New Account",balance:0,color:"#64748b",note:""}]; });
+          }} style=${{display:"inline-flex",alignItems:"center",gap:4,
+            background:"rgba(255,255,255,0.04)",border:"1px dashed rgba(255,255,255,0.15)",
+            borderRadius:20,padding:"3px 10px",fontSize:11,color:"#475569",cursor:"pointer"}}>
+            <span>+</span><span>Add</span>
+          </button>
         </div>
       </div>
 
