@@ -40,104 +40,17 @@
 
 <script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.js"></script>
 
-<!-- Firebase -->
-
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-
 <script>
-// ── Firebase setup ────────────────────────────────────────────────────────────
-firebase.initializeApp({
-  apiKey:"AIzaSyCKHN2Qb_rpWGwgvSfHCNQ84kz0FQy1X00",
-  authDomain:"family-finance-1596d.firebaseapp.com",
-  projectId:"family-finance-1596d",
-  storageBucket:"family-finance-1596d.firebasestorage.app",
-  messagingSenderId:"567138404714",
-  appId:"1:567138404714:web:0cfb9b67156856d3de3d13"
-});
-var db = firebase.firestore();
-var COLL = "family-finance";
-
 function setSyncStatus(msg, color) {
   document.querySelectorAll('#sync-status').forEach(function(el){
-    el.textContent = msg;
-    el.style.color = color || '#64748b';
+    el.textContent = msg; el.style.color = color || '#64748b';
   });
 }
-
-function showToast(msg, color) {
-  // Remove existing toast
-  var old = document.getElementById('ff-toast');
-  if (old) old.remove();
-  
-  var t = document.createElement('div');
-  t.id = 'ff-toast';
-  t.textContent = msg;
-  t.style.cssText = [
-    'position:fixed','bottom:90px','left:50%','transform:translateX(-50%)',
-    'background:'+(color||'#34d399'),'color:#fff',
-    'padding:8px 20px','border-radius:20px','font-size:13px',
-    'font-family:sans-serif','font-weight:600','z-index:9999',
-    'box-shadow:0 4px 12px rgba(0,0,0,0.4)',
-    'transition:opacity 0.3s','opacity:1',
-    'white-space:nowrap'
-  ].join(';');
-  document.body.appendChild(t);
-  
-  setTimeout(function(){
-    t.style.opacity = '0';
-    setTimeout(function(){ t.remove(); }, 300);
-  }, 2000);
-  
-  // Also update sync-status in header
-  setSyncStatus(msg, color);
-  setTimeout(function(){ setSyncStatus(''); }, 2500);
-}
-
 window.storage = {
-  get: async function(k) {
-    try {
-      var snap = await db.collection(COLL).doc(k).get();
-      if (snap.exists) return {key:k, value:snap.data().value};
-      var local = localStorage.getItem(k);
-      if (local) {
-        db.collection(COLL).doc(k).set({value:local, updated:new Date().toISOString()}).catch(function(){});
-        return {key:k, value:local};
-      }
-      return null;
-    } catch(e) {
-      var v = localStorage.getItem(k);
-      return v ? {key:k, value:v} : null;
-    }
-  },
-  set: async function(k, v) {
-    localStorage.setItem(k, String(v));
-    try {
-      await db.collection(COLL).doc(k).set({value:String(v), updated:new Date().toISOString()});
-      showToast('✓ Saved & Synced', '#34d399');
-    } catch(e) {
-      console.warn('Firebase sync error:', e.code, e.message);
-      if (e.code === 'permission-denied') {
-        showToast('⚠ Check Firestore rules', '#f87171');
-      } else {
-        showToast('● Saved offline', '#fbbf24');
-      }
-    }
-    return {key:k, value:v};
-  },
-  delete: async function(k) {
-    localStorage.removeItem(k);
-    try { await db.collection(COLL).doc(k).delete(); } catch(e) {}
-    return {key:k, deleted:true};
-  }
+  get:    async function(k)   { try{var v=localStorage.getItem(k);return v?{key:k,value:v}:null;}catch(e){return null;} },
+  set:    async function(k,v) { try{localStorage.setItem(k,String(v));return{key:k,value:v};}catch(e){return null;} },
+  delete: async function(k)   { try{localStorage.removeItem(k);return{key:k,deleted:true};}catch(e){return null;} }
 };
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js').catch(function(){});
-  });
-}
 </script>
 
 <script>
@@ -150,50 +63,56 @@ if ('serviceWorker' in navigator) {
 
   // ── Defaults ─────────────────────────────────────────────────────────────────
   var DA = [
-    {id:"wf",  name:"Wells Fargo", balance:1034, color:"#f59e0b", note:"Primary bank — both pays here"},
-    {id:"inc", name:"Income CK",   balance:822,  color:"#3b82f6", note:"Old bank — switching autopays"},
+    {id:"wf", name:"Wells Fargo", balance:3835, color:"#f59e0b", note:"Primary bank — both pays here"},
   ];
   var DB = [
-    {id:"groc", name:"Groceries",    budget:550, icon:"🛒", color:"#3d9970", spent:898},
-    {id:"dd",   name:"DoorDash",     budget:150, icon:"🚗", color:"#e74c3c", spent:442},
-    {id:"dine", name:"Dining out",   budget:200, icon:"🍽", color:"#e67e22", spent:503},
-    {id:"tgt",  name:"Target",       budget:250, icon:"🎯", color:"#c0392b", spent:887},
-    {id:"amzn", name:"Amazon",       budget:200, icon:"📦", color:"#f39c12", spent:575},
-    {id:"clth", name:"Clothing",     budget:75,  icon:"👗", color:"#9b59b6", spent:284},
-    {id:"gas",  name:"Gas/Fuel",     budget:182, icon:"⛽", color:"#1abc9c", spent:233},
-    {id:"med",  name:"Medical",      budget:132, icon:"💊", color:"#3498db", spent:290},
-    {id:"cln",  name:"Cleaning",     budget:150, icon:"🧹", color:"#64748b", spent:150},
-    {id:"ent",  name:"Entertainment",budget:100, icon:"🎲", color:"#8b5cf6", spent:240},
-    {id:"hom",  name:"Home/Hardware",budget:150, icon:"🔨", color:"#78716c", spent:591},
+    {id:"groc", name:"Groceries",    budget:550, icon:"🛒", color:"#3d9970", spent:0},
+    {id:"dd",   name:"DoorDash",     budget:150, icon:"🚗", color:"#e74c3c", spent:0},
+    {id:"dine", name:"Dining out",   budget:200, icon:"🍽", color:"#e67e22", spent:0},
+    {id:"tgt",  name:"Target",       budget:250, icon:"🎯", color:"#c0392b", spent:0},
+    {id:"amzn", name:"Amazon",       budget:200, icon:"📦", color:"#f39c12", spent:0},
+    {id:"clth", name:"Clothing",     budget:75,  icon:"👗", color:"#9b59b6", spent:0},
+    {id:"gas",  name:"Gas/Fuel",     budget:182, icon:"⛽", color:"#1abc9c", spent:0},
+    {id:"med",  name:"Medical",      budget:132, icon:"💊", color:"#3498db", spent:0},
+    {id:"cln",  name:"Cleaning",     budget:150, icon:"🧹", color:"#64748b", spent:0},
+    {id:"ent",  name:"Entertainment",budget:100, icon:"🎲", color:"#8b5cf6", spent:0},
+    {id:"hom",  name:"Home/Hardware",budget:150, icon:"🔨", color:"#78716c", spent:0},
   ];
   var DBL = [
-    {id:1,  name:"Ardent Preschool", cat:"Childcare", day:6,   amt:351,  auto:true,  paid:true,  note:"Weekly"},
-    {id:2,  name:"AT&T",            cat:"Phone",      day:3,   amt:228,  auto:true,  paid:true},
-    {id:3,  name:"YMCA",            cat:"Gym",        day:2,   amt:317,  auto:true,  paid:true},
-    {id:4,  name:"Alabama Power",   cat:"Electric",   day:8,   amt:237,  auto:true,  paid:true},
-    {id:5,  name:"LendingClub",     cat:"Debt",       day:8,   amt:581,  auto:true,  paid:true},
-    {id:6,  name:"Amex",            cat:"Debt",       day:9,   amt:699,  auto:true,  paid:true},
-    {id:7,  name:"Citi (1st)",      cat:"Debt",       day:7,   amt:88,   auto:true,  paid:true},
-    {id:8,  name:"State Farm",      cat:"Insurance",  day:7,   amt:109,  auto:true,  paid:true},
-    {id:9,  name:"Discover",        cat:"Debt",       day:14,  amt:103,  auto:true,  paid:true},
-    {id:10, name:"Water (BWW)",     cat:"Utilities",  day:14,  amt:57,   auto:true,  paid:true},
-    {id:11, name:"Upgrade Loan",    cat:"Debt",       day:13,  amt:579,  auto:true,  paid:true},
-    {id:12, name:"Hyundai (HMF)",   cat:"Car",        day:13,  amt:665,  auto:true,  paid:true,  note:"Verify settled"},
-    {id:13, name:"Ally Car",        cat:"Car",        day:12,  amt:555,  auto:true,  paid:true},
-    {id:14, name:"Rocket Money",    cat:"Sub",        day:9,   amt:10,   auto:true,  paid:true},
-    {id:15, name:"Mortgage",        cat:"Housing",    day:15,  amt:3923, auto:true,  paid:true,  note:"Confirmed Apr 23 ✓"},
-    {id:16, name:"GEICO",           cat:"Insurance",  day:23,  amt:269,  auto:true,  paid:false},
-    {id:17, name:"Spectrum",        cat:"Internet",   day:24,  amt:89,   auto:true,  paid:false},
-    {id:18, name:"Spire Gas",       cat:"Utilities",  day:22,  amt:91,   auto:true,  paid:false},
-    {id:19, name:"Ally Car (reg.)", cat:"Car",        day:25,  amt:530,  auto:true,  paid:false},
-    {id:20, name:"Student Loans",   cat:"Debt",       day:25,  amt:187,  auto:true,  paid:false},
-    {id:21, name:"Citi (2nd)",      cat:"Debt",       day:27,  amt:88,   auto:true,  paid:false},
-    {id:22, name:"Ardent (wk 4)",   cat:"Childcare",  day:27,  amt:351,  auto:true,  paid:false},
-    {id:23, name:"Cleaning",        cat:"Home",       day:null,amt:150,  auto:false, paid:false, note:"Venmo ~$150"},
+    {id:1,  name:"YMCA",               cat:"Gym",        day:2,   amt:317,  auto:true,  paid:false},
+    {id:2,  name:"Ardent wk 1",        cat:"Childcare",  day:2,   amt:351,  auto:true,  paid:false, note:"Weekly billing"},
+    {id:3,  name:"AT&T",               cat:"Phone",      day:3,   amt:228,  auto:true,  paid:false},
+    {id:4,  name:"State Farm",         cat:"Insurance",  day:5,   amt:109,  auto:true,  paid:false},
+    {id:5,  name:"Bluff Park Elem",    cat:"School",     day:6,   amt:55,   auto:true,  paid:false},
+    {id:6,  name:"Citi (1st pull)",    cat:"Debt",       day:7,   amt:88,   auto:true,  paid:false},
+    {id:7,  name:"Alabama Power",      cat:"Electric",   day:8,   amt:237,  auto:true,  paid:false},
+    {id:8,  name:"LendingClub",        cat:"Debt",       day:8,   amt:581,  auto:true,  paid:false},
+    {id:9,  name:"Ardent wk 2",        cat:"Childcare",  day:8,   amt:351,  auto:true,  paid:false},
+    {id:10, name:"Mortgage — half 1",  cat:"Housing",    day:8,   amt:1962, auto:false, paid:false, note:"Pay manually after Progress lands May 8"},
+    {id:11, name:"Amex autopay",       cat:"Debt",       day:9,   amt:699,  auto:true,  paid:false},
+    {id:12, name:"Ally Car",           cat:"Car",        day:12,  amt:530,  auto:true,  paid:false},
+    {id:13, name:"Upgrade Loan",       cat:"Debt",       day:13,  amt:579,  auto:true,  paid:false},
+    {id:14, name:"Hyundai (HMF)",      cat:"Car",        day:13,  amt:665,  auto:true,  paid:false},
+    {id:15, name:"Ardent wk 3",        cat:"Childcare",  day:15,  amt:351,  auto:true,  paid:false},
+    {id:16, name:"Discover",           cat:"Debt",       day:15,  amt:103,  auto:true,  paid:false},
+    {id:17, name:"Water (BWW)",        cat:"Utilities",  day:15,  amt:57,   auto:true,  paid:false},
+    {id:18, name:"Mortgage — half 2",  cat:"Housing",    day:18,  amt:1961, auto:false, paid:false, note:"Pay manually after SEU lands May 18"},
+    {id:20, name:"Spire Gas",          cat:"Utilities",  day:22,  amt:91,   auto:true,  paid:false},
+    {id:21, name:"GEICO",              cat:"Insurance",  day:23,  amt:269,  auto:true,  paid:false},
+    {id:22, name:"Spectrum",           cat:"Internet",   day:24,  amt:89,   auto:true,  paid:false},
+    {id:23, name:"Ally Car (reg.)",    cat:"Car",        day:25,  amt:530,  auto:true,  paid:false},
+    {id:24, name:"Student Loans",      cat:"Debt",       day:25,  amt:187,  auto:true,  paid:false},
+    {id:25, name:"Citi (2nd pull)",    cat:"Debt",       day:27,  amt:88,   auto:true,  paid:false},
+    {id:26, name:"Cleaning (bi-weekly 1)", cat:"Home",  day:9,   amt:150, auto:false, paid:false, note:"Venmo $150 to wife — she pays cleaners"},
+    {id:29, name:"Cleaning (bi-weekly 2)", cat:"Home",  day:23,  amt:150, auto:false, paid:false, note:"Venmo $150 to wife — she pays cleaners"},
+    {id:27, name:"Emergency fund",     cat:"Savings",    day:null,amt:674,  auto:false, paid:false, note:"Transfer to savings — May goal"},
+    {id:28, name:"Wife's flight (ATL-TPA)", cat:"Travel",  day:22, amt:300,  auto:false, paid:false, note:"Wedding May 23 · book on Delta or Frontier"},
   ];
   var DI = [
-    {id:"prog", name:"Progress Residential", amt:3398, day:22, note:"Both pays on WF ✓", received:true},
-    {id:"seu",  name:"Southeastern Univ.",   amt:3011, day:6,  note:"Both pays on WF ✓", received:true},
+    {id:"seu1", name:"SEU Paycheck",          amt:3011, day:4,  note:"Already received ✓", received:true},
+    {id:"prog1",name:"Progress Residential",  amt:3398, day:8,  note:"Due May 8",           received:false},
+    {id:"seu2", name:"SEU Paycheck",          amt:3011, day:18, note:"Due May 18",           received:false},
+    {id:"prog2",name:"Progress Residential",  amt:3398, day:22, note:"Due May 22",           received:false},
   ];
   var DEBTS = [
     {name:"Lowe's card",  balance:2000,  rate:26, min:53},
