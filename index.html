@@ -227,7 +227,16 @@ window.storage = {
     useEffect(function(){
       Promise.all([ld(KEYS.a,DA),ld(KEYS.b,DB),ld(KEYS.bl,DBL),ld(KEYS.i,DI),ld(KEYS.m,null)])
         .then(function(r){
-          setAccs(r[0]);setBuds(r[1]);setBills(r[2]);setInc(r[3]);
+          setAccs(r[0]); setBuds(r[1]);
+          // Clean up carryover flags from previous month resets
+          var cleanBills = (r[2]||[]).map(function(b){
+            if (b.note && b.note.indexOf('⚠ Unpaid from') !== -1) {
+              var cleaned = b.note.replace(/⚠ Unpaid from [^·]+(· )?/,'').trim();
+              return Object.assign({},b,{note:cleaned||undefined});
+            }
+            return b;
+          });
+          setBills(cleanBills); setInc(r[3]);
           // Check if month has changed since last use
           var storedMonth = r[4] ? r[4].key ? null : r[4] : null;
           if (storedMonth && storedMonth !== curMonthKey) {
